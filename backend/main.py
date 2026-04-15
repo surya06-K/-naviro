@@ -6,9 +6,13 @@ import os
 import json
 import httpx
 import asyncio
+import logging
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("naviro")
 
 # ── Load environment variables ────────────────────────────────────────────────
 load_dotenv()
@@ -17,16 +21,24 @@ load_dotenv()
 app = FastAPI(title="Naviro API", version="1.0.0")
 
 # ── CORS — allow requests from the Next.js frontend ──────────────────────────
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000"
-).split(",")
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+
+# Optional convenience var for hosting setups (Vercel, Netlify, etc.)
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url and _frontend_url not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(_frontend_url)
+
+_allow_credentials = True
+if "*" in ALLOWED_ORIGINS:
+    # Credentials can't be used with wildcard origins; keep CORS valid.
+    _allow_credentials = False
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_origin_regex=r"https://.*\.vercel\.app",  # allow all Vercel preview URLs
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -130,11 +142,14 @@ Hard rules:
 sessions: dict = {}
 
 # ── LLM (Groq — free tier, fast) ─────────────────────────────────────────────
-llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    groq_api_key=os.getenv("GROQ_API_KEY"),
-    temperature=0.7,
-)
+_groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+llm = None
+if _groq_api_key:
+    llm = ChatGroq(
+        model="llama-3.3-70b-versatile",
+        groq_api_key=_groq_api_key,
+        temperature=0.7,
+    )
 
 # ── Nominatim geocoding (OpenStreetMap — free, no API key) ────────────────────
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
@@ -202,12 +217,21 @@ class PlanResponse(BaseModel):
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "Naviro backend"}
+    return {
+        "status": "ok",
+        "service": "Naviro backend",
+        "groq_configured": llm is not None,
+    }
 
 @app.post("/api/plan", response_model=PlanResponse)
 async def plan(request: PlanRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if llm is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfigured: GROQ_API_KEY is not set on the backend.",
+        )
 
     try:
         if request.session_id not in sessions:
@@ -240,4 +264,5 @@ async def plan(request: PlanRequest):
         return PlanResponse(reply=raw_reply, itinerary=itinerary)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Unhandled error in /api/plan")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")

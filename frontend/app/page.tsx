@@ -172,8 +172,22 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${API_URL}/api/plan`, {
+      const rawApiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!rawApiUrl) {
+        if (process.env.NODE_ENV === "production") {
+          throw new Error(
+            "Backend URL not configured. Set NEXT_PUBLIC_API_URL in Vercel (e.g. https://<your-railway-domain>)."
+          );
+        }
+      }
+
+      let apiUrl = (rawApiUrl || "http://localhost:8000").trim();
+      if (apiUrl && !apiUrl.startsWith("http://") && !apiUrl.startsWith("https://")) {
+        apiUrl = `https://${apiUrl}`;
+      }
+      apiUrl = apiUrl.replace(/\/+$/, "");
+
+      const res = await fetch(`${apiUrl}/api/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId.current, message }),
