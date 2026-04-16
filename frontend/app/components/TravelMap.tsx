@@ -37,6 +37,18 @@ const PIN_COLORS = ["#f97316", "#facc15", "#a855f7"]; // morning / afternoon / e
 const TIME_LABELS = ["Morning", "Afternoon", "Evening"];
 const TIME_ICONS = ["🌅", "☀️", "🌙"];
 
+function getTimeSlotIndex(timeOfDay: string, fallbackIndex: number) {
+  const normalized = timeOfDay.toLowerCase();
+  if (normalized.includes("morning")) return 0;
+  if (normalized.includes("afternoon")) return 1;
+  if (normalized.includes("evening") || normalized.includes("night")) return 2;
+  return fallbackIndex % PIN_COLORS.length;
+}
+
+function getDisplayNumber(timeOfDay: string, fallbackIndex: number) {
+  return getTimeSlotIndex(timeOfDay, fallbackIndex) + 1;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function TravelMap({
   days,
@@ -156,16 +168,28 @@ export default function TravelMap({
       if (!day) return;
 
       const validSlots = day.slots.filter(
-        (s) => s.coordinates?.lat && s.coordinates?.lng &&
-               !(s.coordinates.lat === 0 && s.coordinates.lng === 0)
+        (s) =>
+          s.coordinates?.lat &&
+          s.coordinates?.lng &&
+          !(s.coordinates.lat === 0 && s.coordinates.lng === 0)
       );
       if (validSlots.length === 0) return;
 
       const latlngs: [number, number][] = [];
 
-      validSlots.forEach((slot, i) => {
-        const color = PIN_COLORS[i] ?? "#888";
-        const delay = i * 380; // stagger delay per pin
+      day.slots.forEach((slot, slotIndex) => {
+        if (
+          !slot.coordinates?.lat ||
+          !slot.coordinates?.lng ||
+          (slot.coordinates.lat === 0 && slot.coordinates.lng === 0)
+        ) {
+          return;
+        }
+
+        const timeSlotIndex = getTimeSlotIndex(slot.time_of_day, slotIndex);
+        const color = PIN_COLORS[timeSlotIndex] ?? "#888";
+        const displayNumber = getDisplayNumber(slot.time_of_day, slotIndex);
+        const delay = latlngs.length * 380; // stagger only visible pins
 
         const icon = L.divIcon({
           html: `
@@ -192,7 +216,7 @@ export default function TravelMap({
                   font-family:system-ui,sans-serif;
                   line-height:1;
                   text-shadow:0 1px 3px rgba(0,0,0,0.4);
-                ">${i + 1}</span>
+                ">${displayNumber}</span>
               </div>
             </div>
           `,
@@ -208,7 +232,7 @@ export default function TravelMap({
         )
           .addTo(mapRef.current)
           .on("click", () =>
-            setSelectedSlot((prev) => (prev === i ? null : i))
+            setSelectedSlot((prev) => (prev === slotIndex ? null : slotIndex))
           );
 
         markersRef.current.push(marker);
@@ -241,6 +265,28 @@ export default function TravelMap({
     });
   }, [mapReady, activeDay, days]);
 
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || selectedSlot === null) return;
+
+    const selected = days[activeDay]?.slots[selectedSlot];
+    if (
+      !selected?.coordinates?.lat ||
+      !selected?.coordinates?.lng ||
+      (selected.coordinates.lat === 0 && selected.coordinates.lng === 0)
+    ) {
+      return;
+    }
+
+    mapRef.current.flyTo(
+      [selected.coordinates.lat, selected.coordinates.lng],
+      Math.max(mapRef.current.getZoom(), 14),
+      {
+        animate: true,
+        duration: 1.1,
+      }
+    );
+  }, [mapReady, selectedSlot, activeDay, days]);
+
   function handleRefine(e: React.FormEvent) {
     e.preventDefault();
     if (!refineMsg.trim() || loading) return;
@@ -251,6 +297,10 @@ export default function TravelMap({
 
   const day = days[activeDay];
   const slot = day && selectedSlot !== null ? day.slots[selectedSlot] : null;
+  const slotTimeIndex =
+    slot && selectedSlot !== null
+      ? getTimeSlotIndex(slot.time_of_day, selectedSlot)
+      : null;
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black">
@@ -304,7 +354,12 @@ export default function TravelMap({
 
       {/* ── Left legend (pin shortcuts) ────────────────────────────────── */}
       <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
-        {day?.slots.map((s, i) => (
+        {day?.slots.map((s, i) => {
+          const timeSlotIndex = getTimeSlotIndex(s.time_of_day, i);
+          const displayNumber = getDisplayNumber(s.time_of_day, i);
+          const label = TIME_LABELS[timeSlotIndex] ?? s.time_of_day;
+          const icon = TIME_ICONS[timeSlotIndex] ?? "📍";
+          return (
           <button
             key={i}
             onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
@@ -316,14 +371,15 @@ export default function TravelMap({
           >
             <span
               className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-              style={{ background: PIN_COLORS[i] }}
+              style={{ background: PIN_COLORS[timeSlotIndex] ?? "#888" }}
             >
-              {i + 1}
+              {displayNumber}
             </span>
-            <span className="hidden sm:block">{TIME_LABELS[i]}</span>
-            <span className="sm:hidden">{TIME_ICONS[i]}</span>
+            <span className="hidden sm:block">{label}</span>
+            <span className="sm:hidden">{icon}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── Bottom: slot detail OR refine bar ──────────────────────────── */}
@@ -337,16 +393,21 @@ export default function TravelMap({
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                    style={{ background: PIN_COLORS[selectedSlot!] }}
+                    style={{
+                      background:
+                        PIN_COLORS[
+                          getTimeSlotIndex(slot.time_of_day, selectedSlot!)
+                        ] ?? "#888",
+                    }}
                   >
-                    {selectedSlot! + 1}
+                    {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
                     <h2 className="text-white font-semibold truncate">
                       {slot.place_name}
                     </h2>
                     <p className="text-zinc-500 text-xs capitalize">
-                      {TIME_ICONS[selectedSlot!]} {slot.time_of_day} · {slot.category}
+                      {slotTimeIndex !== null ? TIME_ICONS[slotTimeIndex] : "📍"} {slot.time_of_day} · {slot.category}
                     </p>
                   </div>
                 </div>
