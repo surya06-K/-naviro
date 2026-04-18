@@ -170,38 +170,40 @@ async def geocode_place(client: httpx.AsyncClient, place_name: str, city: str) -
                 headers=NOMINATIM_HEADERS,
                 timeout=5.0,
             )
+            if resp.status_code != 200:
+                continue
+
             results = resp.json()
             if results:
+                best = results[0]
+                city_l = city.lower()
+                for candidate in results:
+                    if city_l in candidate.get("display_name", "").lower():
+                        best = candidate
+                        break
                 return {
-                    "lat": float(results[0]["lat"]),
-                    "lng": float(results[0]["lon"]),
+                    "lat": float(best["lat"]),
+                    "lng": float(best["lon"]),
                 }
         except Exception:
             continue
     return {"lat": 0.0, "lng": 0.0}  # if all lookups fail, return zeroes
 
 async def geocode_itinerary(itinerary: dict) -> dict:
-    """Geocode all places in an itinerary concurrently."""
+    """Geocode all places in an itinerary with Nominatim-safe pacing."""
     city = itinerary.get("destination", "")
-
-    # Collect all (day_idx, slot_idx, place_name) tuples
-    tasks = []
-    indices = []
     async with httpx.AsyncClient() as client:
         for d_idx, day in enumerate(itinerary.get("days", [])):
             for s_idx, slot in enumerate(day.get("slots", [])):
                 place_name = slot.get("place_name", "")
-                if place_name:
-                    tasks.append(geocode_place(client, place_name, city))
-                    indices.append((d_idx, s_idx))
-            # Nominatim rate limit: 1 req/sec — stagger slightly
-            await asyncio.sleep(0.0)
+                if not place_name:
+                    continue
 
-        results = await asyncio.gather(*tasks)
+                coords = await geocode_place(client, place_name, city)
+                itinerary["days"][d_idx]["slots"][s_idx]["coordinates"] = coords
 
-    # Write coordinates back into itinerary
-    for (d_idx, s_idx), coords in zip(indices, results):
-        itinerary["days"][d_idx]["slots"][s_idx]["coordinates"] = coords
+                # Nominatim policy: keep requests low-frequency.
+                await asyncio.sleep(1.1)
 
     return itinerary
 
