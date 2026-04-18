@@ -142,6 +142,7 @@ function buildPrompt(
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Home() {
+  const [formStep, setFormStep] = useState<"city" | "filters">("city");
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
   const [activeDay, setActiveDay] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -220,6 +221,11 @@ export default function Home() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!city.trim() || loading) return;
+    if (formStep === "city") {
+      setFormStep("filters");
+      setError("");
+      return;
+    }
     const prompt = buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace);
     callAPI(prompt);
   }
@@ -242,6 +248,7 @@ export default function Home() {
 
   // ── Landing ─────────────────────────────────────────────────────────────────
   const canSubmit = city.trim().length > 0 && !loading;
+  const isCityStep = formStep === "city";
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
@@ -252,121 +259,134 @@ export default function Home() {
           <h1 className="text-5xl font-bold tracking-tight text-white">
             Navi<span className="text-zinc-500">ro</span>
           </h1>
-          <p className="text-zinc-500 text-base">
-            Tell me who you are. I&apos;ll plan for you, not for everyone.
-          </p>
+          {isCityStep ? (
+            <p className="text-zinc-500 text-base">
+              Pick your city first. We&apos;ll tune the trip next.
+            </p>
+          ) : (
+            <p className="text-zinc-500 text-base">
+              Tell me who you are. I&apos;ll plan for you, not for everyone.
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* City + Days */}
+          {/* City */}
           <div className="space-y-2">
-            <SectionLabel>Where & how long</SectionLabel>
-            <div className="flex gap-2">
-              <input
-                ref={cityRef}
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                placeholder="City or town…"
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 outline-none focus:border-zinc-600 transition-colors text-sm"
-                disabled={loading}
-              />
-              <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3">
-                <button
-                  type="button"
-                  onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
-                  className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
-                >
-                  −
-                </button>
-                <span className="text-white text-sm font-semibold w-14 text-center">
-                  {days} {Number(days) === 1 ? "day" : "days"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
-                  className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
-                >
-                  +
-                </button>
+            <SectionLabel>Where are you going</SectionLabel>
+            <input
+              ref={cityRef}
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="City or town…"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 outline-none focus:border-zinc-600 transition-colors text-sm"
+              disabled={loading}
+            />
+          </div>
+
+          {!isCityStep && (
+            <>
+              {/* Days */}
+              <div className="space-y-2">
+                <SectionLabel>How long</SectionLabel>
+                <div className="w-fit flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3">
+                  <button
+                    type="button"
+                    onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
+                    className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                  >
+                    −
+                  </button>
+                  <span className="text-white text-sm font-semibold w-14 text-center">
+                    {days} {Number(days) === 1 ? "day" : "days"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
+                    className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Vibes — multi select */}
-          <div>
-            <SectionLabel>What you love</SectionLabel>
-            <div className="flex flex-wrap gap-2">
-              {VIBES.map((v) => (
-                <Chip
-                  key={v.label}
-                  icon={v.icon}
-                  label={v.label}
-                  selected={selectedVibes.includes(v.label)}
-                  onClick={() => toggleVibe(v.label)}
-                />
-              ))}
-            </div>
-          </div>
+              {/* Vibes — multi select */}
+              <div>
+                <SectionLabel>What you love</SectionLabel>
+                <div className="flex flex-wrap gap-2">
+                  {VIBES.map((v) => (
+                    <Chip
+                      key={v.label}
+                      icon={v.icon}
+                      label={v.label}
+                      selected={selectedVibes.includes(v.label)}
+                      onClick={() => toggleVibe(v.label)}
+                    />
+                  ))}
+                </div>
+              </div>
 
-          {/* Travel style — single select */}
-          <div>
-            <SectionLabel>Travelling as</SectionLabel>
-            <div className="flex flex-wrap gap-2">
-              {TRAVEL_STYLES.map((s) => (
-                <Chip
-                  key={s.label}
-                  icon={s.icon}
-                  label={s.label}
-                  selected={travelStyle === s.label}
-                  onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))}
-                />
-              ))}
-            </div>
-          </div>
+              {/* Travel style — single select */}
+              <div>
+                <SectionLabel>Travelling as</SectionLabel>
+                <div className="flex flex-wrap gap-2">
+                  {TRAVEL_STYLES.map((s) => (
+                    <Chip
+                      key={s.label}
+                      icon={s.icon}
+                      label={s.label}
+                      selected={travelStyle === s.label}
+                      onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))}
+                    />
+                  ))}
+                </div>
+              </div>
 
-          {/* Budget — single select */}
-          <div>
-            <SectionLabel>Budget</SectionLabel>
-            <div className="flex flex-wrap gap-2">
-              {BUDGETS.map((b) => (
-                <Chip
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  sub={b.sub}
-                  selected={budget === b.label}
-                  onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))}
-                />
-              ))}
-            </div>
-          </div>
+              {/* Budget — single select */}
+              <div>
+                <SectionLabel>Budget</SectionLabel>
+                <div className="flex flex-wrap gap-2">
+                  {BUDGETS.map((b) => (
+                    <Chip
+                      key={b.label}
+                      icon={b.icon}
+                      label={b.label}
+                      sub={b.sub}
+                      selected={budget === b.label}
+                      onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))}
+                    />
+                  ))}
+                </div>
+              </div>
 
-          {/* Pace — single select */}
-          <div>
-            <SectionLabel>Pace</SectionLabel>
-            <div className="flex flex-wrap gap-2">
-              {PACES.map((p) => (
-                <Chip
-                  key={p.label}
-                  icon={p.icon}
-                  label={p.label}
-                  sub={p.sub}
-                  selected={pace === p.label}
-                  onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))}
-                />
-              ))}
-            </div>
-          </div>
+              {/* Pace — single select */}
+              <div>
+                <SectionLabel>Pace</SectionLabel>
+                <div className="flex flex-wrap gap-2">
+                  {PACES.map((p) => (
+                    <Chip
+                      key={p.label}
+                      icon={p.icon}
+                      label={p.label}
+                      sub={p.sub}
+                      selected={pace === p.label}
+                      onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))}
+                    />
+                  ))}
+                </div>
+              </div>
 
-          {/* Preview of what gets sent to AI */}
-          {city.trim() && (
-            <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-500">
-              <span className="text-zinc-600 mr-1">Sending:</span>
-              <span className="text-zinc-400 italic">
-                {buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace)}
-              </span>
-            </div>
+              {/* Preview of what gets sent to AI */}
+              {city.trim() && (
+                <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-500">
+                  <span className="text-zinc-600 mr-1">Sending:</span>
+                  <span className="text-zinc-400 italic">
+                    {buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace)}
+                  </span>
+                </div>
+              )}
+            </>
           )}
 
           {error && (
@@ -379,8 +399,22 @@ export default function Home() {
             disabled={!canSubmit}
             className="w-full bg-white text-black py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-zinc-100 transition-colors"
           >
-            {loading ? "Planning your trip…" : "Plan my trip →"}
+            {loading
+              ? "Planning your trip…"
+              : isCityStep
+                ? "Plan my trip →"
+                : "Plan my trip →"}
           </button>
+
+          {!isCityStep && (
+            <button
+              type="button"
+              onClick={() => setFormStep("city")}
+              className="w-full border border-zinc-800 text-zinc-300 py-3 rounded-2xl font-medium text-sm hover:border-zinc-600 hover:text-white transition-colors"
+            >
+              Edit city
+            </button>
+          )}
         </form>
       </div>
     </div>
