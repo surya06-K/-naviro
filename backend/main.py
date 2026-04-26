@@ -182,7 +182,11 @@ async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
             timeout=8.0,
         )
         data = resp.json()
-        if data.get("status") == "OK" and data.get("results"):
+        status = data.get("status")
+        logger.info("Geocoding API city center [%s] status=%s", city, status)
+        if status == "REQUEST_DENIED":
+            logger.error("Geocoding API key rejected: %s", data.get("error_message", "no message"))
+        if status == "OK" and data.get("results"):
             loc = data["results"][0]["geometry"]["location"]
             return {"lat": loc["lat"], "lng": loc["lng"]}
     except Exception as e:
@@ -194,11 +198,10 @@ async def geocode_place(
     client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
 ) -> dict:
     """Look up precise GPS coordinates using Google Places Text Search API."""
-    # Try progressively broader queries until we get a good result
     queries = [
-        f"{place_name} {city}",        # most specific — Google Places handles this best
-        f"{place_name} {city} India",  # with country
-        f"{place_name} India",         # broadest fallback
+        f"{place_name} {city}",
+        f"{place_name} {city} India",
+        f"{place_name} India",
     ]
     for query in queries:
         try:
@@ -208,27 +211,30 @@ async def geocode_place(
                 timeout=8.0,
             )
             data = resp.json()
-            if data.get("status") == "OK" and data.get("results"):
+            status = data.get("status")
+            logger.info("Places API [%s] status=%s", query, status)
+
+            if status == "REQUEST_DENIED":
+                logger.error("Places API key rejected: %s", data.get("error_message", "no message"))
+                break  # key issue — no point retrying
+
+            if status == "OK" and data.get("results"):
                 loc = data["results"][0]["geometry"]["location"]
                 lat, lng = loc["lat"], loc["lng"]
 
-                # Sanity check: result must be within 70 km of the destination city
                 if (
                     city_center["lat"] != 0.0
                     and city_center["lng"] != 0.0
                     and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > 70
                 ):
-                    logger.warning(
-                        "Places result for '%s' is too far from '%s' — skipping",
-                        place_name, city,
-                    )
+                    logger.warning("Places result for '%s' too far from '%s' — skipping", place_name, city)
                     continue
 
                 return {"lat": lat, "lng": lng}
         except Exception as e:
             logger.warning("Places geocoding error for '%s': %s", place_name, e)
             continue
-    return {"lat": 0.0, "lng": 0.0}  # if all lookups fail, return zeroes
+    return {"lat": 0.0, "lng": 0.0}
 
 async def geocode_itinerary(itinerary: dict) -> dict:
     """Geocode all places in an itinerary using Google Places API (parallel)."""
