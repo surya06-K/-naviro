@@ -153,29 +153,10 @@ if _groq_api_key:
         temperature=0.7,
     )
 
-# ── Nominatim geocoding (OpenStreetMap — free, no API key) ────────────────────
-NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_HEADERS = {"User-Agent": "travel.ai/1.0 (contact@travel.ai)"}
-
-CITY_ALIASES = {
-    "vizag": "visakhapatnam",
-    "bengaluru": "bangalore",
-    "bombay": "mumbai",
-    "calcutta": "kolkata",
-}
-
-
-def _normalize_city_tokens(city: str) -> set[str]:
-    clean = city.strip().lower()
-    if not clean:
-        return set()
-    tokens = {clean}
-    if clean in CITY_ALIASES:
-        tokens.add(CITY_ALIASES[clean])
-    for alias, canonical in CITY_ALIASES.items():
-        if clean == canonical:
-            tokens.add(alias)
-    return tokens
+# ── Google Maps / Places geocoding ───────────────────────────────────────────
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_GEOCODE_URL  = "https://maps.googleapis.com/maps/api/geocode/json"
+GOOGLE_PLACES_URL   = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 
 
 def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -193,111 +174,93 @@ def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> floa
 
 
 async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
-    """Resolve the destination city center once for distance checks."""
-    queries = [f"{city}, India", city]
-    for query in queries:
-        try:
-            resp = await client.get(
-                NOMINATIM_URL,
-                params={"q": query, "format": "json", "limit": 1, "countrycodes": "in"},
-                headers=NOMINATIM_HEADERS,
-                timeout=8.0,
-            )
-            if resp.status_code != 200:
-                continue
-            results = resp.json()
-            if results:
-                return {
-                    "lat": float(results[0]["lat"]),
-                    "lng": float(results[0]["lon"]),
-                }
-        except Exception:
-            continue
+    """Resolve the destination city center using Google Geocoding API."""
+    try:
+        resp = await client.get(
+            GOOGLE_GEOCODE_URL,
+            params={"address": f"{city}, India", "key": GOOGLE_MAPS_API_KEY},
+            timeout=8.0,
+        )
+        data = resp.json()
+        if data.get("status") == "OK" and data.get("results"):
+            loc = data["results"][0]["geometry"]["location"]
+            return {"lat": loc["lat"], "lng": loc["lng"]}
+    except Exception as e:
+        logger.warning("City center geocoding failed for '%s': %s", city, e)
     return {"lat": 0.0, "lng": 0.0}
 
 
 async def geocode_place(
     client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
 ) -> dict:
-    """Look up GPS coordinates while preferring results inside the destination city."""
-    city_tokens = _normalize_city_tokens(city)
+    """Look up precise GPS coordinates using Google Places Text Search API."""
+    # Try progressively broader queries until we get a good result
     queries = [
-        f"{place_name}, {city}, India",   # most specific
-        f"{place_name} near {city}, India",
-        f"{place_name}, {city}",          # without country
-        f"{place_name}, India",           # fallback
+        f"{place_name} {city}",        # most specific — Google Places handles this best
+        f"{place_name} {city} India",  # with country
+        f"{place_name} India",         # broadest fallback
     ]
     for query in queries:
         try:
             resp = await client.get(
-                NOMINATIM_URL,
-                params={
-                    "q": query,
-                    "format": "json",
-                    "limit": 5,
-                    "countrycodes": "in",
-                    "addressdetails": 1,
-                },
-                headers=NOMINATIM_HEADERS,
+                GOOGLE_PLACES_URL,
+                params={"query": query, "key": GOOGLE_MAPS_API_KEY},
                 timeout=8.0,
             )
-            if resp.status_code != 200:
-                continue
+            data = resp.json()
+            if data.get("status") == "OK" and data.get("results"):
+                loc = data["results"][0]["geometry"]["location"]
+                lat, lng = loc["lat"], loc["lng"]
 
-            results = resp.json()
-            if results:
-                best = None
-                best_score = float("inf")
-                for candidate in results:
-                    lat = float(candidate["lat"])
-                    lng = float(candidate["lon"])
-                    display = candidate.get("display_name", "").lower()
-                    token_hit = any(token in display for token in city_tokens)
-                    dist = _distance_km(city_center["lat"], city_center["lng"], lat, lng)
-                    # Strongly penalize far-away matches and non-city text matches.
-                    score = dist + (0 if token_hit else 200)
-                    if score < best_score:
-                        best = candidate
-                        best_score = score
-
-                if best is None:
+                # Sanity check: result must be within 70 km of the destination city
+                if (
+                    city_center["lat"] != 0.0
+                    and city_center["lng"] != 0.0
+                    and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > 70
+                ):
+                    logger.warning(
+                        "Places result for '%s' is too far from '%s' — skipping",
+                        place_name, city,
+                    )
                     continue
 
-                lat = float(best["lat"])
-                lng = float(best["lon"])
-                # Reject results that are very far from requested destination.
-                if _distance_km(city_center["lat"], city_center["lng"], lat, lng) > 70:
-                    continue
-                return {
-                    "lat": lat,
-                    "lng": lng,
-                }
-        except Exception:
+                return {"lat": lat, "lng": lng}
+        except Exception as e:
+            logger.warning("Places geocoding error for '%s': %s", place_name, e)
             continue
     return {"lat": 0.0, "lng": 0.0}  # if all lookups fail, return zeroes
 
 async def geocode_itinerary(itinerary: dict) -> dict:
-    """Geocode all places in an itinerary with Nominatim-safe pacing."""
+    """Geocode all places in an itinerary using Google Places API (parallel)."""
     city = itinerary.get("destination", "")
     async with httpx.AsyncClient() as client:
         city_center = await geocode_city_center(client, city)
         if city_center["lat"] == 0.0 and city_center["lng"] == 0.0:
             logger.warning("Could not resolve city center for '%s'", city)
+
+        # Build a flat list of (d_idx, s_idx, place_name) to geocode
+        tasks = []
         for d_idx, day in enumerate(itinerary.get("days", [])):
             for s_idx, slot in enumerate(day.get("slots", [])):
                 place_name = slot.get("place_name", "")
-                if not place_name:
-                    continue
+                if place_name:
+                    tasks.append((d_idx, s_idx, place_name))
 
-                coords = await geocode_place(client, place_name, city, city_center)
-                if (
-                    coords["lat"] == 0.0
-                    and coords["lng"] == 0.0
-                    and city_center["lat"] != 0.0
-                    and city_center["lng"] != 0.0
-                ):
-                    # Last-resort fallback: keep marker in destination city area.
-                    # Prevents missing pins when provider cannot resolve a niche place.
+        # Fire all geocode requests in parallel — Google has no rate-limit concern here
+        results = await asyncio.gather(
+            *[geocode_place(client, place_name, city, city_center)
+              for _, _, place_name in tasks],
+            return_exceptions=True,
+        )
+
+        for (d_idx, s_idx, place_name), coords in zip(tasks, results):
+            if isinstance(coords, Exception) or (
+                isinstance(coords, dict)
+                and coords["lat"] == 0.0
+                and coords["lng"] == 0.0
+            ):
+                # Fallback: scatter slightly around city center so pins are visible
+                if city_center["lat"] != 0.0:
                     offsets = [(-0.012, -0.008), (0.010, 0.006), (0.004, -0.011)]
                     lat_off, lng_off = offsets[s_idx % len(offsets)]
                     coords = {
@@ -306,15 +269,12 @@ async def geocode_itinerary(itinerary: dict) -> dict:
                     }
                     logger.warning(
                         "Fallback coords used for '%s' in '%s' (day %s slot %s)",
-                        place_name,
-                        city,
-                        d_idx + 1,
-                        s_idx + 1,
+                        place_name, city, d_idx + 1, s_idx + 1,
                     )
-                itinerary["days"][d_idx]["slots"][s_idx]["coordinates"] = coords
+                else:
+                    coords = {"lat": 0.0, "lng": 0.0}
 
-                # Nominatim policy: keep requests low-frequency.
-                await asyncio.sleep(1.1)
+            itinerary["days"][d_idx]["slots"][s_idx]["coordinates"] = coords
 
     return itinerary
 
@@ -370,7 +330,7 @@ async def plan(request: PlanRequest):
         except json.JSONDecodeError:
             pass
 
-        # Geocode all places with real coordinates via Nominatim
+        # Geocode all places with precise coordinates via Google Places API
         if itinerary:
             itinerary = await geocode_itinerary(itinerary)
 
