@@ -447,13 +447,13 @@ export default function TravelMap({
             /* Refine bar */
             <form
               onSubmit={handleRefine}
-              className="bg-black/75 backdrop-blur-lg border border-zinc-700/80 rounded-2xl p-2 flex gap-2 shadow-2xl"
+              className="bg-white/90 backdrop-blur-lg border border-zinc-200 rounded-2xl p-2 flex gap-2 shadow-xl"
             >
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none"
                 disabled={loading}
               />
               <button
