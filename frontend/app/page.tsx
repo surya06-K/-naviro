@@ -64,8 +64,8 @@ const PACES = [
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center bg-zinc-50">
-      <div className="text-zinc-500 text-sm animate-pulse">Loading map…</div>
+    <div className="w-full h-screen flex items-center justify-center bg-black">
+      <div className="text-zinc-600 text-sm animate-pulse">Loading map…</div>
     </div>
   ),
 });
@@ -92,16 +92,16 @@ function Chip({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition-colors ${
+      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition-all ${
         selected
-          ? "bg-zinc-900 text-white border-zinc-900 font-semibold"
-          : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300"
+          ? "bg-white text-black border-white font-semibold"
+          : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-600 hover:text-zinc-200"
       }`}
     >
       <span>{icon}</span>
       <span>{label}</span>
       {sub && (
-        <span className={`text-xs ${selected ? "text-zinc-300" : "text-zinc-500"}`}>
+        <span className={`text-xs ${selected ? "text-zinc-500" : "text-zinc-600"}`}>
           {sub}
         </span>
       )}
@@ -112,7 +112,7 @@ function Chip({
 // ─── Section label ────────────────────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">
+    <p className="text-zinc-600 text-xs uppercase tracking-widest mb-2">
       {children}
     </p>
   );
@@ -251,26 +251,26 @@ export default function Home() {
   const isCityStep = formStep === "city";
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-zinc-50">
-      <div className="w-full max-w-xl">
-        <div className="bg-white border border-zinc-200 rounded-3xl shadow-sm p-8 space-y-8">
-          {/* Logo */}
-          <div className="text-center space-y-1">
-            <h1 className="text-5xl font-bold tracking-tight text-zinc-900">
-              Navi<span className="text-zinc-400">ro</span>
-            </h1>
-            {isCityStep ? (
-              <p className="text-zinc-500 text-base">
-                Pick your city first. We&apos;ll tune the trip next.
-              </p>
-            ) : (
-              <p className="text-zinc-500 text-base">
-                Tell me who you are. I&apos;ll plan for you, not for everyone.
-              </p>
-            )}
-          </div>
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
+      <div className="w-full max-w-xl space-y-8">
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Logo */}
+        <div className="text-center space-y-1">
+          <h1 className="text-5xl font-bold tracking-tight text-white">
+            Navi<span className="text-zinc-500">ro</span>
+          </h1>
+          {isCityStep ? (
+            <p className="text-zinc-500 text-base">
+              Pick your city first. We&apos;ll tune the trip next.
+            </p>
+          ) : (
+            <p className="text-zinc-500 text-base">
+              Tell me who you are. I&apos;ll plan for you, not for everyone.
+            </p>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
 
           {/* City */}
           <div className="space-y-2">
@@ -280,7 +280,7 @@ export default function Home() {
               value={city}
               onChange={(e) => setCity(e.target.value)}
               placeholder="City or town…"
-              className="w-full bg-white border border-zinc-200 rounded-xl px-4 py-3 text-zinc-900 placeholder-zinc-400 outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[var(--app-ring)] transition-colors text-sm"
+              className="w-full bg-zinc-50/95 border border-zinc-200 rounded-xl px-4 py-3 text-zinc-900 placeholder-zinc-400 outline-none focus:border-zinc-300 focus:ring-2 focus:ring-zinc-200/70 transition-colors text-sm"
               disabled={loading}
             />
           </div>
@@ -290,21 +290,21 @@ export default function Home() {
               {/* Days */}
               <div className="space-y-2">
                 <SectionLabel>How long</SectionLabel>
-                <div className="w-fit flex items-center gap-1 bg-white border border-zinc-200 rounded-xl px-3">
+                <div className="w-fit flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3">
                   <button
                     type="button"
                     onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
-                    className="text-zinc-500 hover:text-zinc-900 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                    className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
                   >
                     −
                   </button>
-                  <span className="text-zinc-900 text-sm font-semibold w-14 text-center">
+                  <span className="text-white text-sm font-semibold w-14 text-center">
                     {days} {Number(days) === 1 ? "day" : "days"}
                   </span>
                   <button
                     type="button"
                     onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
-                    className="text-zinc-500 hover:text-zinc-900 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                    className="text-zinc-400 hover:text-white w-7 h-7 flex items-center justify-center text-lg transition-colors"
                   >
                     +
                   </button>
@@ -379,9 +379,9 @@ export default function Home() {
 
               {/* Preview of what gets sent to AI */}
               {city.trim() && (
-                <div className="bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-xs text-zinc-600">
-                  <span className="text-zinc-500 mr-1">Sending:</span>
-                  <span className="text-zinc-700 italic">
+                <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 text-xs text-zinc-500">
+                  <span className="text-zinc-600 mr-1">Sending:</span>
+                  <span className="text-zinc-400 italic">
                     {buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace)}
                   </span>
                 </div>
@@ -390,14 +390,14 @@ export default function Home() {
           )}
 
           {error && (
-            <p className="text-red-600 text-sm px-1">{error}</p>
+            <p className="text-red-400 text-sm px-1">{error}</p>
           )}
 
           {/* Submit */}
           <button
             type="submit"
             disabled={!canSubmit}
-            className="w-full bg-zinc-900 text-white py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-zinc-800 transition-colors"
+            className="w-full bg-white text-black py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-zinc-100 transition-colors"
           >
             {loading
               ? "Planning your trip…"
@@ -410,14 +410,13 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setFormStep("city")}
-              className="w-full border border-zinc-200 text-zinc-700 py-3 rounded-2xl font-medium text-sm hover:bg-zinc-50 hover:border-zinc-300 transition-colors"
+              className="w-full border border-zinc-800 text-zinc-300 py-3 rounded-2xl font-medium text-sm hover:border-zinc-600 hover:text-white transition-colors"
             >
               Edit city
             </button>
           )}
         </form>
       </div>
-    </div>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Map as LeafletMap, Marker as LeafletMarker, Polyline as LeafletPolyline } from "leaflet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -62,9 +61,9 @@ export default function TravelMap({
   loading,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const markersRef = useRef<LeafletMarker[]>([]);
-  const polylineRef = useRef<LeafletPolyline | null>(null);
+  const mapRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+  const polylineRef = useRef<any>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [refineMsg, setRefineMsg] = useState("");
@@ -86,21 +85,21 @@ export default function TravelMap({
       @keyframes fadeInLine {
         from { opacity: 0; } to { opacity: 1; }
       }
-      .leaflet-container { background: #f4f4f5 !important; }
+      .leaflet-container { background: #111 !important; }
       .leaflet-control-zoom a {
-        background: rgba(255,255,255,0.92) !important;
-        color: #0f172a !important;
-        border-color: rgba(0,0,0,0.10) !important;
+        background: rgba(0,0,0,0.75) !important;
+        color: #e4e4e7 !important;
+        border-color: rgba(255,255,255,0.15) !important;
         backdrop-filter: blur(8px);
       }
-      .leaflet-control-zoom a:hover { background: rgba(255,255,255,1) !important; color: #0f172a !important; }
+      .leaflet-control-zoom a:hover { background: rgba(0,0,0,0.9) !important; color: #fff !important; }
       .leaflet-control-attribution {
-        background: rgba(255,255,255,0.85) !important;
-        color: #64748b !important;
+        background: rgba(0,0,0,0.55) !important;
+        color: #71717a !important;
         font-size: 10px !important;
         backdrop-filter: blur(4px);
       }
-      .leaflet-control-attribution a { color: #334155 !important; }
+      .leaflet-control-attribution a { color: #a1a1aa !important; }
     `;
     if (!document.getElementById("travel-map-styles")) {
       document.head.appendChild(style);
@@ -154,8 +153,7 @@ export default function TravelMap({
 
   // ── Update markers when day changes ─────────────────────────────────────────
   useEffect(() => {
-    const map = mapRef.current;
-    if (!mapReady || !map) return;
+    if (!mapReady || !mapRef.current) return;
 
     import("leaflet").then((L) => {
       // Clear previous markers + route line
@@ -232,7 +230,7 @@ export default function TravelMap({
           [slot.coordinates.lat, slot.coordinates.lng],
           { icon }
         )
-          .addTo(map)
+          .addTo(mapRef.current)
           .on("click", () =>
             setSelectedSlot((prev) => (prev === slotIndex ? null : slotIndex))
           );
@@ -246,17 +244,17 @@ export default function TravelMap({
         const routeDelay = validSlots.length * 380 + 150;
         setTimeout(() => {
           polylineRef.current = L.polyline(latlngs, {
-            color: "rgba(15,23,42,0.25)",
+            color: "rgba(255,255,255,0.2)",
             weight: 2,
             dashArray: "6 10",
-          }).addTo(map);
+          }).addTo(mapRef.current);
         }, routeDelay);
       }
 
       // Fly camera to fit all pins
       const bounds = L.latLngBounds(latlngs);
       setTimeout(() => {
-        map.flyToBounds(bounds, {
+        mapRef.current?.flyToBounds(bounds, {
           padding: [90, 90],
           duration: 1.3,
           maxZoom: 14,
@@ -305,23 +303,23 @@ export default function TravelMap({
       : null;
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-zinc-50">
+    <div className="relative w-full h-screen overflow-hidden bg-black">
       {/* ── Map canvas ─────────────────────────────────────────────────── */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
       {/* ── Top bar ────────────────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-white/90 backdrop-blur-lg rounded-2xl p-3.5 border border-zinc-200 shadow-sm">
+          <div className="bg-black/75 backdrop-blur-lg rounded-2xl p-3.5 border border-zinc-800/80 shadow-xl">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-zinc-500 text-[10px] font-semibold tracking-widest uppercase mb-0.5">
+                <p className="text-zinc-600 text-[10px] font-semibold tracking-widest uppercase mb-0.5">
                   Naviro
                 </p>
-                <h1 className="text-zinc-900 font-bold text-xl leading-tight truncate">
+                <h1 className="text-white font-bold text-xl leading-tight truncate">
                   {destination}
                 </h1>
-                <p className="text-zinc-600 text-xs mt-0.5 line-clamp-1">
+                <p className="text-zinc-400 text-xs mt-0.5 line-clamp-1">
                   {summary}
                 </p>
               </div>
@@ -341,8 +339,8 @@ export default function TravelMap({
                     onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
-                        ? "bg-zinc-900 text-white shadow-sm"
-                        : "bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50"
+                        ? "bg-white text-black shadow"
+                        : "bg-zinc-800/80 text-zinc-400 hover:bg-zinc-700 hover:text-white"
                     }`}
                   >
                     Day {d.day_number}
@@ -367,8 +365,8 @@ export default function TravelMap({
             onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
             className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
               selectedSlot === i
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white/90 text-zinc-700 border-zinc-200 hover:bg-white hover:border-zinc-300"
+                ? "bg-white text-black border-white"
+                : "bg-black/65 text-zinc-300 border-zinc-700/70 hover:border-zinc-500 hover:text-white"
             }`}
           >
             <span
@@ -389,7 +387,7 @@ export default function TravelMap({
         <div className="max-w-xl mx-auto">
           {slot ? (
             /* Slot detail card */
-            <div className="bg-white/92 backdrop-blur-lg rounded-2xl p-4 border border-zinc-200 shadow-xl animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-black/80 backdrop-blur-lg rounded-2xl p-4 border border-zinc-700/80 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
               {/* Header */}
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
@@ -405,7 +403,7 @@ export default function TravelMap({
                     {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-zinc-900 font-semibold truncate">
+                    <h2 className="text-white font-semibold truncate">
                       {slot.place_name}
                     </h2>
                     <p className="text-zinc-500 text-xs capitalize">
@@ -415,34 +413,34 @@ export default function TravelMap({
                 </div>
                 <button
                   onClick={() => setSelectedSlot(null)}
-                  className="text-zinc-500 hover:text-zinc-900 transition-colors shrink-0 text-xl leading-none"
+                  className="text-zinc-500 hover:text-white transition-colors shrink-0 text-xl leading-none"
                 >
                   ×
                 </button>
               </div>
 
-              <p className="text-zinc-700 text-sm mb-3 leading-relaxed">
+              <p className="text-zinc-300 text-sm mb-3 leading-relaxed">
                 {slot.description}
               </p>
 
               <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                <div className="bg-zinc-800/60 rounded-lg p-2.5">
                   <p className="text-zinc-500 mb-0.5">⏱ Duration</p>
-                  <p className="text-zinc-800 font-medium">{slot.estimated_duration}</p>
+                  <p className="text-zinc-200 font-medium">{slot.estimated_duration}</p>
                 </div>
-                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                <div className="bg-zinc-800/60 rounded-lg p-2.5">
                   <p className="text-zinc-500 mb-0.5">💰 Cost</p>
-                  <p className="text-zinc-800 font-medium">{slot.estimated_cost}</p>
+                  <p className="text-zinc-200 font-medium">{slot.estimated_cost}</p>
                 </div>
-                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                <div className="bg-zinc-800/60 rounded-lg p-2.5">
                   <p className="text-zinc-500 mb-0.5">🚌 Transport</p>
-                  <p className="text-zinc-800 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
+                  <p className="text-zinc-200 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs">
-                <p className="text-amber-900 font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-amber-950/80">{slot.local_tip}</p>
+              <div className="bg-amber-950/50 border border-amber-800/40 rounded-lg p-2.5 text-xs">
+                <p className="text-amber-400 font-semibold mb-0.5">💡 Local tip</p>
+                <p className="text-amber-100/80">{slot.local_tip}</p>
               </div>
             </div>
           ) : (
@@ -461,7 +459,7 @@ export default function TravelMap({
               <button
                 type="submit"
                 disabled={loading || !refineMsg.trim()}
-                className="bg-zinc-900 text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-zinc-800 transition-colors shrink-0"
+                className="bg-white text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-zinc-100 transition-colors shrink-0"
               >
                 {loading ? "…" : "Update →"}
               </button>
