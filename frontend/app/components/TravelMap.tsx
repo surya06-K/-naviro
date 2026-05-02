@@ -54,6 +54,34 @@ function getDisplayNumber(timeOfDay: string, fallbackIndex: number) {
   return getTimeSlotIndex(timeOfDay, fallbackIndex) + 1;
 }
 
+function buildCalendarUrl(slot: Slot, dayNumber: number, destination: string): string {
+  const base = new Date();
+  base.setDate(base.getDate() + 7 + dayNumber - 1); // placeholder: one week from now
+
+  const timeMap: Record<string, [number, number]> = {
+    morning: [9, 11],
+    afternoon: [13, 15],
+    evening: [18, 20],
+  };
+  const [startH, endH] = timeMap[slot.time_of_day.toLowerCase()] ?? [10, 11];
+
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+
+  const start = new Date(base);
+  start.setHours(startH, 0, 0, 0);
+  const end = new Date(base);
+  end.setHours(endH, 0, 0, 0);
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: slot.place_name,
+    dates: `${fmt(start)}/${fmt(end)}`,
+    details: `${slot.description}\n\nLocal tip: ${slot.local_tip}\n\nGetting there: ${slot.how_to_get_there}`,
+    location: `${slot.place_name}, ${destination}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function TravelMap({
   days,
@@ -354,6 +382,25 @@ export default function TravelMap({
                 ))}
               </div>
             )}
+
+            {!!day && (
+              <div className="flex justify-end mt-2">
+                <button
+                  onClick={() => {
+                    day.slots.forEach((s) => {
+                      window.open(
+                        buildCalendarUrl(s, day.day_number, destination),
+                        "_blank",
+                        "noopener,noreferrer"
+                      );
+                    });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-medium hover:border-zinc-500 hover:text-white transition-colors"
+                >
+                  Export Day {day.day_number} to Calendar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -447,6 +494,39 @@ export default function TravelMap({
               <div className="bg-amber-950/50 border border-amber-800/40 rounded-lg p-2.5 text-xs">
                 <p className="text-amber-400 font-semibold mb-0.5">💡 Local tip</p>
                 <p className="text-amber-100/80">{slot.local_tip}</p>
+              </div>
+
+              <div className="flex gap-2 mt-3 flex-wrap">
+                {!["food", "cultural", "market"].includes(slot.category.toLowerCase()) && (
+                  <a
+                    href={`https://www.booking.com/search.html?ss=${encodeURIComponent(
+                      `${slot.place_name} ${destination}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900/40 border border-blue-700/50 text-blue-300 text-xs font-medium hover:bg-blue-800/50 transition-colors"
+                  >
+                    Booking.com
+                  </a>
+                )}
+                <a
+                  href={`https://www.makemytrip.com/hotels/hotel-listing/?cityCode=${encodeURIComponent(destination)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 text-xs font-medium hover:bg-red-800/50 transition-colors"
+                >
+                  MakeMyTrip
+                </a>
+                <a
+                  href={`https://www.skyscanner.co.in/flights-to/${encodeURIComponent(
+                    destination.toLowerCase().replace(/\s+/g, "-")
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-900/40 border border-teal-700/50 text-teal-300 text-xs font-medium hover:bg-teal-800/50 transition-colors"
+                >
+                  Skyscanner
+                </a>
               </div>
             </div>
           ) : (
