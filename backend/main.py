@@ -157,6 +157,14 @@ if _groq_api_key:
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 GOOGLE_GEOCODE_URL  = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACES_URL   = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+_NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "2") or "2")
+_nominatim_semaphore = asyncio.Semaphore(_NOMINATIM_CONCURRENCY)
+_geocode_cache: dict[str, dict] = {}
+_nominatim_headers = {
+    # Nominatim requires a valid User-Agent; keep it stable and specific.
+    "User-Agent": "naviro/1.0 (travel.ai)",
+}
 
 
 def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -173,9 +181,43 @@ def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> floa
     return 2 * r * math.atan2(math.sqrt(x), math.sqrt(1 - x))
 
 
+async def _nominatim_geocode(client: httpx.AsyncClient, query: str) -> dict:
+    cache_key = f"nominatim::{query}"
+    cached = _geocode_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Be polite to Nominatim: limit concurrency and add a tiny delay.
+    async with _nominatim_semaphore:
+        await asyncio.sleep(0.15)
+        try:
+            resp = await client.get(
+                NOMINATIM_SEARCH_URL,
+                params={"q": query, "format": "json", "limit": 1, "addressdetails": 0},
+                headers=_nominatim_headers,
+                timeout=8.0,
+            )
+            data = resp.json()
+            if isinstance(data, list) and data:
+                lat = float(data[0].get("lat", 0.0) or 0.0)
+                lng = float(data[0].get("lon", 0.0) or 0.0)
+                coords = {"lat": lat, "lng": lng}
+                _geocode_cache[cache_key] = coords
+                return coords
+        except Exception as e:
+            logger.warning("Nominatim geocoding error for '%s': %s", query, e)
+
+    coords = {"lat": 0.0, "lng": 0.0}
+    _geocode_cache[cache_key] = coords
+    return coords
+
+
 async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
-    """Resolve the destination city center using Google Geocoding API."""
+    """Resolve the destination city center using Google Geocoding API (fallback: Nominatim)."""
     try:
+        if not GOOGLE_MAPS_API_KEY:
+            return await _nominatim_geocode(client, f"{city}, India")
+
         resp = await client.get(
             GOOGLE_GEOCODE_URL,
             params={"address": f"{city}, India", "key": GOOGLE_MAPS_API_KEY},
@@ -186,23 +228,45 @@ async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
         logger.info("Geocoding API city center [%s] status=%s", city, status)
         if status == "REQUEST_DENIED":
             logger.error("Geocoding API key rejected: %s", data.get("error_message", "no message"))
+            return await _nominatim_geocode(client, f"{city}, India")
         if status == "OK" and data.get("results"):
             loc = data["results"][0]["geometry"]["location"]
             return {"lat": loc["lat"], "lng": loc["lng"]}
     except Exception as e:
         logger.warning("City center geocoding failed for '%s': %s", city, e)
+        if not GOOGLE_MAPS_API_KEY:
+            return await _nominatim_geocode(client, f"{city}, India")
     return {"lat": 0.0, "lng": 0.0}
 
 
 async def geocode_place(
     client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
 ) -> dict:
-    """Look up precise GPS coordinates using Google Places Text Search API."""
+    """Look up precise GPS coordinates using Google Places Text Search API (fallback: Nominatim)."""
     queries = [
         f"{place_name} {city}",
         f"{place_name} {city} India",
         f"{place_name} India",
     ]
+
+    # If Google isn't configured, go straight to the fallback.
+    if not GOOGLE_MAPS_API_KEY:
+        for query in [
+            f"{place_name}, {city}, India",
+            f"{place_name}, {city}",
+            f"{place_name}, India",
+        ]:
+            coords = await _nominatim_geocode(client, query)
+            if coords["lat"] == 0.0 and coords["lng"] == 0.0:
+                continue
+            if (
+                city_center.get("lat", 0.0) != 0.0
+                and city_center.get("lng", 0.0) != 0.0
+                and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > 120
+            ):
+                continue
+            return coords
+        return {"lat": 0.0, "lng": 0.0}
     for query in queries:
         try:
             resp = await client.get(
@@ -234,10 +298,27 @@ async def geocode_place(
         except Exception as e:
             logger.warning("Places geocoding error for '%s': %s", place_name, e)
             continue
+
+    # Fallback: Nominatim
+    for query in [
+        f"{place_name}, {city}, India",
+        f"{place_name}, {city}",
+        f"{place_name}, India",
+    ]:
+        coords = await _nominatim_geocode(client, query)
+        if coords["lat"] == 0.0 and coords["lng"] == 0.0:
+            continue
+        if (
+            city_center.get("lat", 0.0) != 0.0
+            and city_center.get("lng", 0.0) != 0.0
+            and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > 120
+        ):
+            continue
+        return coords
     return {"lat": 0.0, "lng": 0.0}
 
 async def geocode_itinerary(itinerary: dict) -> dict:
-    """Geocode all places in an itinerary using Google Places API (parallel)."""
+    """Geocode all places in an itinerary using Google Places API (fallback: Nominatim)."""
     city = itinerary.get("destination", "")
     async with httpx.AsyncClient() as client:
         city_center = await geocode_city_center(client, city)
