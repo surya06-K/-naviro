@@ -280,7 +280,7 @@ export default function Home() {
               value={city}
               onChange={(e) => setCity(e.target.value)}
               placeholder="City or town…"
-              className="w-full bg-zinc-50/95 border border-zinc-200 rounded-xl px-4 py-3 text-zinc-900 placeholder-zinc-400 outline-none focus:border-zinc-300 focus:ring-2 focus:ring-zinc-200/70 transition-colors text-sm"
+              className="w-full bg-zinc-900/70 border border-zinc-800 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 focus:ring-2 focus:ring-zinc-800/70 transition-colors text-sm"
               disabled={loading}
             />
           </div>

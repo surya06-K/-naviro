@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type {
+  Map as LeafletMap,
+  Marker as LeafletMarker,
+  Polyline as LeafletPolyline,
+} from "leaflet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -61,9 +66,9 @@ export default function TravelMap({
   loading,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const polylineRef = useRef<any>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const markersRef = useRef<LeafletMarker[]>([]);
+  const polylineRef = useRef<LeafletPolyline | null>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [refineMsg, setRefineMsg] = useState("");
@@ -153,7 +158,8 @@ export default function TravelMap({
 
   // ── Update markers when day changes ─────────────────────────────────────────
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
 
     import("leaflet").then((L) => {
       // Clear previous markers + route line
@@ -230,7 +236,7 @@ export default function TravelMap({
           [slot.coordinates.lat, slot.coordinates.lng],
           { icon }
         )
-          .addTo(mapRef.current)
+          .addTo(map)
           .on("click", () =>
             setSelectedSlot((prev) => (prev === slotIndex ? null : slotIndex))
           );
@@ -247,14 +253,14 @@ export default function TravelMap({
             color: "rgba(255,255,255,0.2)",
             weight: 2,
             dashArray: "6 10",
-          }).addTo(mapRef.current);
+          }).addTo(map);
         }, routeDelay);
       }
 
       // Fly camera to fit all pins
       const bounds = L.latLngBounds(latlngs);
       setTimeout(() => {
-        mapRef.current?.flyToBounds(bounds, {
+        map.flyToBounds(bounds, {
           padding: [90, 90],
           duration: 1.3,
           maxZoom: 14,
@@ -447,19 +453,19 @@ export default function TravelMap({
             /* Refine bar */
             <form
               onSubmit={handleRefine}
-              className="bg-white/90 backdrop-blur-lg border border-zinc-200 rounded-2xl p-2 flex gap-2 shadow-xl"
+              className="bg-black/70 backdrop-blur-lg border border-zinc-700/70 rounded-2xl p-2 flex gap-2 shadow-2xl"
             >
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none"
                 disabled={loading}
               />
               <button
                 type="submit"
                 disabled={loading || !refineMsg.trim()}
-                className="bg-white text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-zinc-100 transition-colors shrink-0"
+                className="bg-white text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-zinc-200 transition-colors shrink-0"
               >
                 {loading ? "…" : "Update →"}
               </button>
