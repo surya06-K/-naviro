@@ -7,6 +7,7 @@ import type {
   Polyline as LeafletPolyline,
 } from "leaflet";
 import LiveMode from "./LiveMode";
+import DirectionsPanel from "./DirectionsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -101,9 +102,10 @@ export default function TravelMap({
   const [mapReady,      setMapReady]      = useState(false);
 
   // Phase 2 state
-  const [showEmergency, setShowEmergency] = useState(false);
-  const [emergency,     setEmergency]     = useState<any>(null);
-  const [showLive,      setShowLive]      = useState(false);
+  const [showEmergency,  setShowEmergency]  = useState(false);
+  const [emergency,      setEmergency]      = useState<any>(null);
+  const [showLive,       setShowLive]       = useState(false);
+  const [showDirections, setShowDirections] = useState(false);
 
   // ── Fetch emergency info once per destination ───────────────────────────────
   useEffect(() => {
@@ -456,6 +458,23 @@ export default function TravelMap({
         })}
       </div>
 
+      {/* ── Directions overlay ───────────────────────────────── */}
+      {showDirections && slot && (
+        <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-end justify-center">
+            <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl">
+              <DirectionsPanel
+                destinationName={slot.place_name}
+                destinationLat={slot.coordinates.lat}
+                destinationLng={slot.coordinates.lng}
+                city={destination}
+                onBack={() => setShowDirections(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Bottom: slot detail OR refine bar ────────────────── */}
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
         <div className="max-w-xl mx-auto">
@@ -501,7 +520,7 @@ export default function TravelMap({
               </div>
 
               {/* Booking links */}
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex gap-2 flex-wrap mb-3">
                 {!["food", "cultural", "market"].includes(slot.category) && (
                   <a href={`https://www.booking.com/search.html?ss=${encodeURIComponent(slot.place_name + " " + destination)}`}
                     target="_blank" rel="noopener noreferrer"
@@ -520,6 +539,14 @@ export default function TravelMap({
                   🛫 Skyscanner
                 </a>
               </div>
+
+              {/* Directions button */}
+              <button
+                onClick={() => setShowDirections(true)}
+                className="w-full py-2.5 rounded-xl bg-white text-black text-sm font-semibold hover:bg-zinc-100 transition-colors flex items-center justify-center gap-2"
+              >
+                🧭 Get me there →
+              </button>
             </div>
           ) : (
             <form onSubmit={handleRefine}

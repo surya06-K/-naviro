@@ -4,10 +4,13 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 import json
+import time
+import re
 import httpx
 import asyncio
 import logging
 import math
+from urllib.parse import quote
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -728,3 +731,334 @@ Rules:
     except Exception as e:
         logger.exception("Error in /api/replan")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REAL-TIME TRANSPORT DIRECTIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
+
+# ── Auto-rickshaw meter rates by city (2024-25) ───────────────────────────────
+# Source: respective RTA published rates
+AUTO_METER: dict[str, dict] = {
+    "hyderabad":   {"base_fare": 25, "base_km": 1.8, "per_km": 14, "note": "TSRTC city"},
+    "secunderabad":{"base_fare": 25, "base_km": 1.8, "per_km": 14, "note": ""},
+    "warangal":    {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
+    "vijayawada":  {"base_fare": 25, "base_km": 1.5, "per_km": 13, "note": "APSRTC city"},
+    "visakhapatnam":{"base_fare": 25,"base_km": 1.5, "per_km": 13, "note": ""},
+    "bengaluru":   {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": "BMTC city"},
+    "bangalore":   {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": ""},
+    "mysuru":      {"base_fare": 25, "base_km": 2.0, "per_km": 14, "note": ""},
+    "mysore":      {"base_fare": 25, "base_km": 2.0, "per_km": 14, "note": ""},
+    "mangaluru":   {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
+    "chennai":     {"base_fare": 25, "base_km": 1.8, "per_km": 12, "note": "MTC city"},
+    "coimbatore":  {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
+    "madurai":     {"base_fare": 20, "base_km": 1.5, "per_km": 12, "note": ""},
+    "tiruchirappalli":{"base_fare": 20,"base_km":1.5,"per_km": 11, "note": ""},
+    "kochi":       {"base_fare": 30, "base_km": 2.0, "per_km": 14, "note": "KSRTC city"},
+    "thiruvananthapuram":{"base_fare":25,"base_km":1.5,"per_km":13,"note":""},
+    "kozhikode":   {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
+    "mumbai":      {"base_fare": 21, "base_km": 1.5, "per_km": 14, "note": "BEST city"},
+    "pune":        {"base_fare": 21, "base_km": 1.5, "per_km": 13, "note": ""},
+    "nagpur":      {"base_fare": 20, "base_km": 1.5, "per_km": 12, "note": ""},
+    "delhi":       {"base_fare": 25, "base_km": 1.5, "per_km":  9, "note": "DTC city"},
+    "gurgaon":     {"base_fare": 25, "base_km": 1.5, "per_km": 10, "note": ""},
+    "noida":       {"base_fare": 25, "base_km": 1.5, "per_km": 10, "note": ""},
+    "kolkata":     {"base_fare": 30, "base_km": 2.0, "per_km": 12, "note": ""},
+    "ahmedabad":   {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
+    "surat":       {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
+    "jaipur":      {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
+    "lucknow":     {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
+    "bhopal":      {"base_fare": 20, "base_km": 1.5, "per_km": 10, "note": ""},
+    "indore":      {"base_fare": 20, "base_km": 1.5, "per_km": 10, "note": ""},
+    "chandigarh":  {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
+    "goa":         {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": "Pre-paid recommended"},
+    "default":     {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
+}
+
+# ── Cab fare estimates (Ola Mini / Uber Go approximate) ───────────────────────
+CAB_RATES: dict[str, dict] = {
+    "bengaluru": {"base": 50, "per_km": 13, "surge_max": 1.8},
+    "bangalore": {"base": 50, "per_km": 13, "surge_max": 1.8},
+    "hyderabad": {"base": 45, "per_km": 11, "surge_max": 1.6},
+    "chennai":   {"base": 45, "per_km": 12, "surge_max": 1.6},
+    "mumbai":    {"base": 55, "per_km": 14, "surge_max": 2.0},
+    "delhi":     {"base": 50, "per_km": 11, "surge_max": 1.8},
+    "kolkata":   {"base": 40, "per_km": 10, "surge_max": 1.5},
+    "pune":      {"base": 45, "per_km": 12, "surge_max": 1.6},
+    "kochi":     {"base": 50, "per_km": 13, "surge_max": 1.5},
+    "default":   {"base": 49, "per_km": 12, "surge_max": 1.7},
+}
+
+
+def _auto_fare(distance_km: float, city: str) -> str:
+    key = city.lower().strip()
+    rates = AUTO_METER.get(key, AUTO_METER["default"])
+    if distance_km <= rates["base_km"]:
+        fare = rates["base_fare"]
+    else:
+        fare = rates["base_fare"] + (distance_km - rates["base_km"]) * rates["per_km"]
+    # ±20% range to account for traffic, minor detours, night charges
+    return f"₹{int(fare * 0.9)}–{int(fare * 1.2)}"
+
+
+def _cab_fare(distance_km: float, city: str) -> str:
+    key = city.lower().strip()
+    rates = CAB_RATES.get(key, CAB_RATES["default"])
+    base_fare = rates["base"] + distance_km * rates["per_km"]
+    low = int(base_fare * 0.9)
+    high = int(base_fare * rates["surge_max"])
+    return f"₹{low}–{high}"
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags from Google Directions step instructions."""
+    return re.sub(r"<[^>]+>", " ", text).replace("  ", " ").strip()
+
+
+def _parse_transit_leg(leg: dict) -> dict | None:
+    """Convert a Google Directions transit leg into Naviro's transport option format."""
+    steps_out: list[dict] = []
+    transit_modes: set[str] = set()
+    agencies: set[str] = set()
+
+    for step in leg.get("steps", []):
+        mode = step.get("travel_mode", "")
+        if mode == "WALKING":
+            dist = step.get("distance", {}).get("text", "")
+            dur  = step.get("duration", {}).get("text", "")
+            instr = _strip_html(step.get("html_instructions", "Walk"))
+            steps_out.append({"type": "walk", "instruction": instr,
+                               "duration": dur, "distance": dist})
+        elif mode == "TRANSIT":
+            td      = step.get("transit_details", {})
+            line    = td.get("line", {})
+            vehicle = line.get("vehicle", {})
+            v_type  = vehicle.get("type", "BUS")
+            transit_modes.add(v_type)
+            for ag in line.get("agencies", []):
+                agencies.add(ag.get("name", ""))
+
+            dep_time = td.get("departure_time", {})
+            arr_time = td.get("arrival_time", {})
+
+            steps_out.append({
+                "type":           "transit",
+                "vehicle_type":   v_type,
+                "line":           line.get("short_name") or line.get("name", ""),
+                "line_full_name": line.get("name", ""),
+                "agency":         ", ".join(agencies) or "Transit",
+                "headsign":       td.get("headsign", ""),
+                "from_stop":      td.get("departure_stop", {}).get("name", ""),
+                "to_stop":        td.get("arrival_stop", {}).get("name", ""),
+                "departure_time": dep_time.get("text", ""),
+                "arrival_time":   arr_time.get("text", ""),
+                "num_stops":      td.get("num_stops", 0),
+                "is_realtime":    bool(dep_time.get("value")),
+            })
+
+    if not steps_out:
+        return None
+
+    # Pick icon + label for primary vehicle type
+    if transit_modes & {"SUBWAY", "METRO_RAIL", "TRAM"}:
+        icon, label = "🚇", "Metro"
+    elif transit_modes & {"HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "RAIL"}:
+        icon, label = "🚆", "Train"
+    else:
+        icon  = "🚌"
+        label = ", ".join(agencies) if agencies else "Bus"
+
+    # Google Directions API sometimes returns fare
+    fare_text = ""
+    if leg.get("fare"):
+        fare_text = leg["fare"].get("text", "")
+
+    return {
+        "mode":         "transit",
+        "icon":         icon,
+        "label":        label,
+        "duration":     leg.get("duration", {}).get("text", ""),
+        "fare_estimate": fare_text or "Check at boarding point",
+        "agencies":     list(agencies),
+        "is_realtime":  any(
+            s.get("is_realtime") for s in steps_out if s.get("type") == "transit"
+        ),
+        "steps": steps_out,
+    }
+
+
+# ── Request model ─────────────────────────────────────────────────────────────
+class DirectionsRequest(BaseModel):
+    origin_text:     str   = ""    # user-typed location (optional if coords given)
+    origin_lat:      float = 0.0   # from GPS (optional)
+    origin_lng:      float = 0.0   # from GPS (optional)
+    destination_name: str          # place name (for display + Ola/Uber links)
+    destination_lat:  float        # from slot coordinates
+    destination_lng:  float
+    city:            str           # destination city (for fare table lookup)
+
+
+@app.post("/api/directions")
+async def get_directions(req: DirectionsRequest):
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Maps API key is not configured. Add GOOGLE_MAPS_API_KEY to your Railway environment variables.",
+        )
+
+    async with httpx.AsyncClient() as client:
+
+        # ── Resolve origin coordinates ────────────────────────────────────────
+        if req.origin_lat != 0.0 and req.origin_lng != 0.0:
+            origin_coords = (req.origin_lat, req.origin_lng)
+        elif req.origin_text.strip():
+            geocoded = await geocode_place(
+                client,
+                req.origin_text.strip(),
+                req.city,
+                {"lat": req.destination_lat, "lng": req.destination_lng},
+            )
+            if geocoded["lat"] == 0.0 and geocoded["lng"] == 0.0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Couldn't find '{req.origin_text}'. Try being more specific — add the city name.",
+                )
+            origin_coords = (geocoded["lat"], geocoded["lng"])
+        else:
+            raise HTTPException(status_code=400, detail="Provide either GPS coordinates or a location name.")
+
+        origin_str = f"{origin_coords[0]},{origin_coords[1]}"
+        dest_str   = f"{req.destination_lat},{req.destination_lng}"
+        now_ts     = int(time.time())
+
+        # ── Fire transit + driving + walking in parallel ──────────────────────
+        common_params = {"language": "en", "region": "in", "key": GOOGLE_MAPS_API_KEY}
+
+        transit_task = client.get(
+            GOOGLE_DIRECTIONS_URL,
+            params={**common_params, "origin": origin_str, "destination": dest_str,
+                    "mode": "transit", "alternatives": "true",
+                    "departure_time": now_ts, "transit_routing_preference": "fewer_transfers"},
+            timeout=10.0,
+        )
+        driving_task = client.get(
+            GOOGLE_DIRECTIONS_URL,
+            params={**common_params, "origin": origin_str, "destination": dest_str,
+                    "mode": "driving", "departure_time": now_ts},
+            timeout=10.0,
+        )
+        walking_task = client.get(
+            GOOGLE_DIRECTIONS_URL,
+            params={**common_params, "origin": origin_str, "destination": dest_str,
+                    "mode": "walking"},
+            timeout=10.0,
+        )
+
+        transit_resp, driving_resp, walking_resp = await asyncio.gather(
+            transit_task, driving_task, walking_task, return_exceptions=True
+        )
+
+        options: list[dict] = []
+        distance_km: float  = 0.0
+        driving_duration    = ""
+
+        # ── Parse transit routes ──────────────────────────────────────────────
+        if not isinstance(transit_resp, Exception):
+            t_data = transit_resp.json()
+            if t_data.get("status") == "OK":
+                seen_labels: set[str] = set()
+                for route in t_data.get("routes", [])[:3]:
+                    leg    = route["legs"][0]
+                    option = _parse_transit_leg(leg)
+                    if option and option["label"] not in seen_labels:
+                        options.append(option)
+                        seen_labels.add(option["label"])
+            elif t_data.get("status") == "ZERO_RESULTS":
+                logger.info("No transit routes found for this origin/destination pair.")
+            else:
+                logger.warning("Transit API status: %s", t_data.get("status"))
+
+        # ── Parse driving (used for auto + cab estimates) ─────────────────────
+        if not isinstance(driving_resp, Exception):
+            d_data = driving_resp.json()
+            if d_data.get("status") == "OK":
+                d_leg         = d_data["routes"][0]["legs"][0]
+                distance_km   = d_leg["distance"]["value"] / 1000
+                driving_duration = (
+                    d_leg.get("duration_in_traffic", d_leg["duration"])["text"]
+                )
+
+                # Auto-rickshaw
+                options.append({
+                    "mode":         "auto",
+                    "icon":         "🛺",
+                    "label":        "Auto-rickshaw",
+                    "duration":     driving_duration,
+                    "fare_estimate": _auto_fare(distance_km, req.city),
+                    "note":         "Metered in most cities. Confirm fare before boarding. Night charges (10 PM–5 AM) are usually 1.5×.",
+                    "steps":        [],
+                    "is_realtime":  False,
+                })
+
+                # Cab — Ola + Uber deep links
+                o_name = quote(req.origin_text or "Current location")
+                d_name = quote(req.destination_name)
+                ola_link = (
+                    f"https://book.olacabs.com/?pickup_lat={origin_coords[0]}"
+                    f"&pickup_lng={origin_coords[1]}&pickup_name={o_name}"
+                    f"&drop_lat={req.destination_lat}&drop_lng={req.destination_lng}"
+                    f"&drop_name={d_name}&category=auto"
+                )
+                uber_link = (
+                    f"https://m.uber.com/ul/?action=setPickup"
+                    f"&pickup[latitude]={origin_coords[0]}&pickup[longitude]={origin_coords[1]}"
+                    f"&pickup[nickname]={o_name}"
+                    f"&dropoff[latitude]={req.destination_lat}&dropoff[longitude]={req.destination_lng}"
+                    f"&dropoff[nickname]={d_name}"
+                )
+                options.append({
+                    "mode":         "cab",
+                    "icon":         "🚕",
+                    "label":        "Cab",
+                    "duration":     driving_duration,
+                    "fare_estimate": _cab_fare(distance_km, req.city),
+                    "note":         "Estimate only. Actual price shown in app. May surge during peak hours.",
+                    "ola_link":     ola_link,
+                    "uber_link":    uber_link,
+                    "steps":        [],
+                    "is_realtime":  False,
+                })
+
+        # ── Parse walking (only show if ≤ 3 km) ──────────────────────────────
+        if not isinstance(walking_resp, Exception):
+            w_data = walking_resp.json()
+            if w_data.get("status") == "OK":
+                w_leg    = w_data["routes"][0]["legs"][0]
+                walk_km  = w_leg["distance"]["value"] / 1000
+                if walk_km <= 3.0:
+                    options.append({
+                        "mode":         "walk",
+                        "icon":         "🚶",
+                        "label":        "Walk",
+                        "duration":     w_leg["duration"]["text"],
+                        "fare_estimate": "Free",
+                        "distance":     f"{walk_km:.1f} km",
+                        "note":         "Use footpaths where available. Avoid walking in heavy traffic areas.",
+                        "steps":        [],
+                        "is_realtime":  False,
+                    })
+
+        if not options:
+            raise HTTPException(
+                status_code=404,
+                detail="No transport options found. Make sure GOOGLE_MAPS_API_KEY has Directions API enabled.",
+            )
+
+        return {
+            "origin":      req.origin_text or "Your location",
+            "destination": req.destination_name,
+            "distance_km": round(distance_km, 1),
+            "options":     options,
+        }
