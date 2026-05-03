@@ -12,6 +12,8 @@ import math
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
+from database import init_db, get_db
+
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("naviro")
 
@@ -19,7 +21,10 @@ logger = logging.getLogger("naviro")
 load_dotenv()
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Naviro API", version="1.0.0")
+app = FastAPI(title="Naviro API", version="2.0.0")
+
+# ── Init database ─────────────────────────────────────────────────────────────
+init_db()
 
 # ── CORS — allow requests from the Next.js frontend ──────────────────────────
 _allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -165,6 +170,7 @@ _nominatim_headers = {
     # Nominatim requires a valid User-Agent; keep it stable and specific.
     "User-Agent": "naviro/1.0 (travel.ai)",
 }
+MAX_PLACE_DISTANCE_KM = float(os.getenv("MAX_PLACE_DISTANCE_KM", "35") or "35")
 
 
 def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -289,7 +295,7 @@ async def geocode_place(
                 if (
                     city_center["lat"] != 0.0
                     and city_center["lng"] != 0.0
-                    and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > 70
+                    and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > MAX_PLACE_DISTANCE_KM
                 ):
                     logger.warning("Places result for '%s' too far from '%s' — skipping", place_name, city)
                     continue
@@ -311,11 +317,105 @@ async def geocode_place(
         if (
             city_center.get("lat", 0.0) != 0.0
             and city_center.get("lng", 0.0) != 0.0
-            and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > 120
+            and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > MAX_PLACE_DISTANCE_KM
         ):
             continue
         return coords
     return {"lat": 0.0, "lng": 0.0}
+
+
+def _find_slots_outside_radius(itinerary: dict, city_center: dict) -> list[dict]:
+    """Return slots whose coordinates are too far from the destination center."""
+    if (
+        not city_center
+        or city_center.get("lat", 0.0) == 0.0
+        or city_center.get("lng", 0.0) == 0.0
+    ):
+        return []
+
+    offenders: list[dict] = []
+    for d_idx, day in enumerate(itinerary.get("days", [])):
+        for slot in (day or {}).get("slots", []):
+            coords = (slot or {}).get("coordinates") or {}
+            lat = coords.get("lat", 0.0) or 0.0
+            lng = coords.get("lng", 0.0) or 0.0
+            if lat == 0.0 and lng == 0.0:
+                continue
+            distance_km = _distance_km(
+                city_center["lat"], city_center["lng"], float(lat), float(lng)
+            )
+            if distance_km > MAX_PLACE_DISTANCE_KM:
+                offenders.append(
+                    {
+                        "day_number": (day or {}).get("day_number", d_idx + 1),
+                        "time_of_day": (slot or {}).get("time_of_day", ""),
+                        "place_name": (slot or {}).get("place_name", ""),
+                        "distance_km": round(distance_km, 1),
+                    }
+                )
+    return offenders
+
+
+async def _repair_itinerary_far_places(itinerary: dict, offenders: list[dict]) -> dict | None:
+    """Ask the LLM to replace out-of-town picks with local alternatives (JSON-only)."""
+    if llm is None or not offenders:
+        return None
+
+    repair_prompt = """You are repairing a travel itinerary JSON.
+
+Some places are NOT inside the destination town/city (they geocode far away). Replace ONLY those slots with better local alternatives inside the destination town/city or immediate outskirts (<= 20 km). Keep everything else unchanged.
+
+Hard rules:
+- Output ONLY valid JSON (no markdown, no backticks).
+- Preserve: destination, total_days, day_number/day_title structure, and time_of_day values.
+- For each offender slot: change place_name/description/how_to_get_there/estimated_* /local_tip to match the new local place.
+- Never include a place from another city (no day trips) unless the user explicitly asked.
+- Coordinates must always be {"lat": 0.0, "lng": 0.0}.
+"""
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=repair_prompt),
+                HumanMessage(
+                    content=json.dumps(
+                        {"itinerary": itinerary, "offenders": offenders},
+                        ensure_ascii=False,
+                    )
+                ),
+            ]
+        )
+        clean = (response.content or "").strip()
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.strip()
+        return json.loads(clean)
+    except Exception as e:
+        logger.warning("Itinerary repair failed: %s", e)
+        return None
+
+
+async def geocode_itinerary_with_repair(itinerary: dict) -> dict:
+    """Geocode, then repair out-of-town slots once and geocode again."""
+    itinerary = await geocode_itinerary(itinerary)
+
+    city = itinerary.get("destination", "")
+    async with httpx.AsyncClient() as client:
+        city_center = await geocode_city_center(client, city)
+
+    offenders = _find_slots_outside_radius(itinerary, city_center)
+    if not offenders:
+        return itinerary
+
+    logger.warning("Out-of-town slots detected for '%s': %s", city, offenders)
+
+    repaired = await _repair_itinerary_far_places(itinerary, offenders)
+    if not repaired:
+        return itinerary
+
+    return await geocode_itinerary(repaired)
 
 async def geocode_itinerary(itinerary: dict) -> dict:
     """Geocode all places in an itinerary using Google Places API (fallback: Nominatim)."""
@@ -419,10 +519,212 @@ async def plan(request: PlanRequest):
 
         # Geocode all places with precise coordinates via Google Places API
         if itinerary:
-            itinerary = await geocode_itinerary(itinerary)
+            itinerary = await geocode_itinerary_with_repair(itinerary)
 
         return PlanResponse(reply=raw_reply, itinerary=itinerary)
 
     except Exception as e:
         logger.exception("Unhandled error in /api/plan")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+
+
+# ── Emergency Info ─────────────────────────────────────────────────────────────
+class EmergencyRequest(BaseModel):
+    destination: str
+    country: str = "India"
+
+
+@app.post("/api/emergency")
+async def emergency_info(request: EmergencyRequest):
+    if llm is None:
+        raise HTTPException(status_code=500, detail="LLM not configured")
+    prompt = f"""For the travel destination "{request.destination}" in "{request.country}", return ONLY this JSON with no extra text, no markdown:
+{{
+  "emergency_number": "local police/emergency number",
+  "hospitals": [
+    {{"name": "hospital name", "address": "full address", "phone": "number"}},
+    {{"name": "hospital name", "address": "full address", "phone": "number"}}
+  ],
+  "police_station": {{"name": "station name", "address": "full address", "phone": "number"}},
+  "embassy": {{"country": "Indian Embassy / High Commission", "address": "full address", "phone": "number"}},
+  "safety_tips": ["specific tip 1", "specific tip 2", "specific tip 3"]
+}}"""
+    try:
+        response = llm.invoke([SystemMessage(content=prompt)])
+        clean = response.content.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.strip()
+        return json.loads(clean)
+    except Exception as e:
+        logger.exception("Error in /api/emergency")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── User Preferences (Memory) ──────────────────────────────────────────────────
+class PreferencesPayload(BaseModel):
+    user_id: str
+    vibes: list[str] = []
+    travel_style: str = ""
+    budget: str = ""
+    pace: str = ""
+    destination: str = ""
+
+
+@app.get("/api/preferences/{user_id}")
+def get_preferences(user_id: str):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {}
+    return {
+        "vibes": json.loads(row["vibes"]),
+        "travel_style": row["travel_style"],
+        "budget": row["budget"],
+        "pace": row["pace"],
+        "past_destinations": json.loads(row["past_destinations"]),
+    }
+
+
+@app.post("/api/preferences")
+def save_preferences(payload: PreferencesPayload):
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT past_destinations FROM user_preferences WHERE user_id = ?",
+        (payload.user_id,),
+    ).fetchone()
+    past = json.loads(existing["past_destinations"]) if existing else []
+    if payload.destination and payload.destination not in past:
+        past = [payload.destination] + past[:9]
+    conn.execute(
+        """
+        INSERT INTO user_preferences (user_id, vibes, travel_style, budget, pace, past_destinations, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            vibes=excluded.vibes,
+            travel_style=excluded.travel_style,
+            budget=excluded.budget,
+            pace=excluded.pace,
+            past_destinations=excluded.past_destinations,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            payload.user_id,
+            json.dumps(payload.vibes),
+            payload.travel_style,
+            payload.budget,
+            payload.pace,
+            json.dumps(past),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# ── Live Trip Mode ─────────────────────────────────────────────────────────────
+class LiveRequest(BaseModel):
+    session_id: str
+    destination: str
+    current_location: str
+    time_of_day: str
+    hours_remaining: int
+    past_slots: list[str] = []
+
+
+@app.post("/api/live")
+async def live_mode(request: LiveRequest):
+    if llm is None:
+        raise HTTPException(status_code=500, detail="LLM not configured")
+    prompt = f"""You are Naviro in live trip mode. The user is actively travelling right now.
+
+Destination: {request.destination}
+Current location: {request.current_location}
+Current time: {request.time_of_day}
+Hours left in trip: {request.hours_remaining}
+Already visited today: {", ".join(request.past_slots) or "Nothing yet"}
+
+Give 2–3 specific suggestions for RIGHT NOW based on their location and remaining time. Write like a local friend texting them — short, direct, specific. No tourism-brochure language.
+
+Return ONLY valid JSON, no markdown:
+{{
+  "context": "one sentence setting the scene — what time/vibe it is right now",
+  "suggestions": [
+    {{
+      "place_name": "exact name findable on a map",
+      "why_now": "why this works at this specific time and from their location — 1 sentence",
+      "how_to_get_there": "from their current location — specific transport and cost in INR",
+      "estimated_duration": "X hours",
+      "local_tip": "one real insider tip a local would know"
+    }}
+  ]
+}}"""
+    try:
+        response = llm.invoke([SystemMessage(content=prompt)])
+        clean = response.content.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.strip()
+        return json.loads(clean)
+    except Exception as e:
+        logger.exception("Error in /api/live")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Auto Re-planning Agent ─────────────────────────────────────────────────────
+class ReplanRequest(BaseModel):
+    session_id: str
+    destination: str
+    original_slots: list[dict]
+    completed_slots: list[str]
+    disruption: str
+    time_remaining: str
+
+
+@app.post("/api/replan")
+async def replan(request: ReplanRequest):
+    if llm is None:
+        raise HTTPException(status_code=500, detail="LLM not configured")
+    prompt = f"""You are Naviro's live re-planning agent. The user's trip has hit a disruption mid-day.
+
+Destination: {request.destination}
+Disruption: {request.disruption}
+Time remaining: {request.time_remaining}
+Already visited (keep these, don't repeat): {", ".join(request.completed_slots) or "None"}
+Original remaining plan: {json.dumps(request.original_slots, ensure_ascii=False)}
+
+Replace the disrupted/remaining slots with better alternatives that account for the disruption.
+Keep completed slots unchanged. Respond ONLY with a JSON array of new slot objects.
+
+Rules:
+- Adapt specifically to the disruption (rain → indoor spots, closed → nearby alternative, late → closer/faster)
+- Don't repeat any completed spots
+- Maintain time-of-day order
+- Keep within the city
+- Coordinates always {{"lat": 0.0, "lng": 0.0}}
+- Match the same slot structure as the original"""
+    try:
+        response = llm.invoke([SystemMessage(content=prompt)])
+        clean = response.content.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.strip()
+        new_slots = json.loads(clean)
+        dummy_itinerary = {
+            "destination": request.destination,
+            "days": [{"day_number": 1, "slots": new_slots}],
+        }
+        geocoded = await geocode_itinerary(dummy_itinerary)
+        return {"slots": geocoded["days"][0]["slots"]}
+    except Exception as e:
+        logger.exception("Error in /api/replan")
+        raise HTTPException(status_code=500, detail=str(e))
