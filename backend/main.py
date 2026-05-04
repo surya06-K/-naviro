@@ -777,6 +777,91 @@ AUTO_METER: dict[str, dict] = {
     "default":     {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
 }
 
+# ── Rapido bike-taxi rates (2024-25) ─────────────────────────────────────────
+# Operates in 100+ Indian cities. Fastest in congested city traffic.
+RAPIDO_CITIES: set[str] = {
+    "hyderabad", "secunderabad", "bengaluru", "bangalore", "chennai",
+    "kochi", "mysuru", "mysore", "coimbatore", "madurai", "visakhapatnam",
+    "vijayawada", "warangal", "mangaluru", "thiruvananthapuram", "kozhikode",
+    "tiruchirappalli", "tirupati", "vellore", "salem",
+    "delhi", "gurgaon", "noida", "kolkata", "pune", "mumbai", "jaipur",
+    "ahmedabad", "chandigarh", "lucknow", "patna", "bhubaneswar", "guwahati",
+    "bhopal", "indore", "nagpur", "surat", "agra", "meerut", "varanasi",
+}
+
+RAPIDO_RATES: dict[str, dict] = {
+    "hyderabad":  {"base": 25, "base_km": 1.5, "per_km": 7},
+    "secunderabad": {"base": 25, "base_km": 1.5, "per_km": 7},
+    "bengaluru":  {"base": 35, "base_km": 2.0, "per_km": 9},
+    "bangalore":  {"base": 35, "base_km": 2.0, "per_km": 9},
+    "chennai":    {"base": 30, "base_km": 1.5, "per_km": 8},
+    "delhi":      {"base": 25, "base_km": 1.5, "per_km": 8},
+    "mumbai":     {"base": 35, "base_km": 2.0, "per_km": 9},
+    "kolkata":    {"base": 25, "base_km": 1.5, "per_km": 7},
+    "kochi":      {"base": 30, "base_km": 1.5, "per_km": 8},
+    "pune":       {"base": 30, "base_km": 1.5, "per_km": 8},
+    "jaipur":     {"base": 25, "base_km": 1.5, "per_km": 7},
+    "default":    {"base": 30, "base_km": 1.5, "per_km": 8},
+}
+
+# ── Cities where share-autos operate on fixed routes ─────────────────────────
+SHARE_AUTO_CITIES: set[str] = {
+    "hyderabad", "secunderabad", "chennai", "bengaluru", "bangalore",
+    "coimbatore", "madurai", "vijayawada", "visakhapatnam", "kochi",
+    "thiruvananthapuram", "kozhikode", "tiruchirappalli", "tirupati",
+    "mysuru", "mysore", "mangaluru",
+}
+
+# ── Ferry / boat routes by city ───────────────────────────────────────────────
+FERRY_CITIES: dict[str, str] = {
+    "mumbai":       "BEST Ferry (Gateway ↔ Elephanta, ~₹200 return). Mandwa ferry for Alibaug. Ferry terminal at Apollo Bunder.",
+    "kochi":        "Kochi Water Metro + KSWTD public ferries. Ernakulam → Fort Kochi in ~10 min, ₹5–20. Very reliable.",
+    "goa":          "Government ferries cross Mandovi & Zuari rivers — free for pedestrians. Panaji ferry to Betim is famous.",
+    "varanasi":     "Row boats & motor boats on the Ganga ghats. ₹100–200 for ghat tours. Non-motorised boats available at dawn.",
+    "alappuzha":    "KSWTD public ferries + private houseboats. Ferry to Kottayam ~₹15. Water bus from Alappuzha Boat Jetty.",
+    "alleppey":     "KSWTD public ferries + private houseboats. Ferry to Kottayam ~₹15. Water bus from Alappuzha Boat Jetty.",
+    "kolkata":      "Hooghly River Hooghly Ferry Services. Babughat to Howrah in ~15 min, ₹5. Also: Millennium Park to Belur Math.",
+    "mandapam":     "Ferry to Rameswaram via Pamban Island. Check Tamil Nadu Maritime Board for schedule.",
+    "srinagar":     "Shikara rides on Dal Lake — iconic and practical. ₹30–60 for short rides. Also connects houseboats.",
+}
+
+# ── E-rickshaw / Toto availability by city ───────────────────────────────────
+ERICKSHAW_CITIES: dict[str, str] = {
+    "delhi":      "E-rickshaws (e-rikshaw) run feeder routes near metro stations. ₹10–30 shared, ₹30–70 private.",
+    "noida":      "Very common near metro exits. ₹10–25 shared.",
+    "gurgaon":    "Available near metro feeder routes. ₹20–50.",
+    "kolkata":    "Toto (e-rickshaw) very common, especially in suburban areas. ₹10–30 per trip.",
+    "patna":      "Widely available across the city. ₹20–50 for short trips.",
+    "lucknow":    "Available near main roads and railway station areas. ₹20–40.",
+    "agra":       "Common around tourist areas — Taj Ganj, Fatehabad Rd. ₹30–80.",
+    "varanasi":   "Common feeder to ghats and old city lanes. ₹20–50.",
+    "bhubaneswar":"Very common. ₹20–40 per trip.",
+    "guwahati":   "Available near Paltan Bazaar and major junctions. ₹20–40.",
+    "bhopal":     "Available near ISBT and major areas. ₹20–40.",
+    "meerut":     "Very common. ₹10–30 shared.",
+    "allahabad":  "Common around Prayagraj station and ghats. ₹20–40.",
+    "prayagraj":  "Common around station and ghats. ₹20–40.",
+}
+
+# ── City bus fallback notes (when no GTFS transit data) ──────────────────────
+CITY_BUS_NOTES: dict[str, str] = {
+    "hyderabad":  "TSRTC buses cover the whole city (₹10–30). Check TSRTC app or MetroRail + bus combo.",
+    "secunderabad": "TSRTC buses + MMTS train. Check TSRTC app.",
+    "bengaluru":  "BMTC buses extensive. Check BMTC app or Namma Metro + bus combo. Fare ₹5–30.",
+    "bangalore":  "BMTC buses extensive. Check BMTC app or Namma Metro + bus combo. Fare ₹5–30.",
+    "chennai":    "MTC buses very affordable (₹5–25). Check MTC website for route numbers.",
+    "mumbai":     "BEST buses frequent across the city (₹5–30). Check BEST app or m-Indicator app.",
+    "delhi":      "DTC + cluster buses cover most areas (₹5–25). Delhi Transit app has real-time tracking.",
+    "kochi":      "KSRTC city buses + private buses. Fare ~₹10–30. Complements the Water Metro.",
+    "kolkata":    "CTC + private buses (₹7–20). Kolkata Metro is often faster for long routes.",
+    "pune":       "PMPML buses (₹5–25). Check PMPML app.",
+    "ahmedabad":  "BRTS (Bus Rapid Transit) + AMTS buses (₹5–25). Very frequent on BRT corridors.",
+    "jaipur":     "City buses (₹10–25) + Jaipur Metro. Check JMC transport website.",
+    "surat":      "BRTS buses excellent (₹5–15). Very punctual on BRT routes.",
+    "bhopal":     "BRTS + city buses (₹7–25). Check BCLL transport.",
+    "indore":     "iBus (₹7–25). Indore has one of India's best city bus systems.",
+}
+
 # ── Cab fare estimates (Ola Mini / Uber Go approximate) ───────────────────────
 CAB_RATES: dict[str, dict] = {
     "bengaluru": {"base": 50, "per_km": 13, "surge_max": 1.8},
@@ -810,6 +895,16 @@ def _cab_fare(distance_km: float, city: str) -> str:
     low = int(base_fare * 0.9)
     high = int(base_fare * rates["surge_max"])
     return f"₹{low}–{high}"
+
+
+def _rapido_fare(distance_km: float, city: str) -> str:
+    key = city.lower().strip()
+    rates = RAPIDO_RATES.get(key, RAPIDO_RATES["default"])
+    if distance_km <= rates["base_km"]:
+        fare = rates["base"]
+    else:
+        fare = rates["base"] + (distance_km - rates["base_km"]) * rates["per_km"]
+    return f"₹{int(fare * 0.9)}–{int(fare * 1.15)}"
 
 
 def _strip_html(text: str) -> str:
@@ -933,6 +1028,10 @@ async def get_directions(req: DirectionsRequest):
         dest_str   = f"{req.destination_lat},{req.destination_lng}"
         now_ts     = int(time.time())
 
+        # Always compute straight-line distance as fallback (used when driving API fails)
+        straight_km  = _distance_km(origin_coords[0], origin_coords[1], req.destination_lat, req.destination_lng)
+        estimated_km = straight_km * 1.35  # typical road:straight ratio
+
         # ── Fire transit + driving + walking in parallel ──────────────────────
         common_params = {"language": "en", "region": "in", "key": GOOGLE_MAPS_API_KEY}
 
@@ -984,52 +1083,57 @@ async def get_directions(req: DirectionsRequest):
         if not isinstance(driving_resp, Exception):
             d_data = driving_resp.json()
             if d_data.get("status") == "OK":
-                d_leg         = d_data["routes"][0]["legs"][0]
-                distance_km   = d_leg["distance"]["value"] / 1000
-                driving_duration = (
-                    d_leg.get("duration_in_traffic", d_leg["duration"])["text"]
-                )
+                d_leg            = d_data["routes"][0]["legs"][0]
+                distance_km      = d_leg["distance"]["value"] / 1000
+                driving_duration = d_leg.get("duration_in_traffic", d_leg["duration"])["text"]
+            else:
+                logger.warning("Driving API status: %s — using haversine estimate", d_data.get("status"))
 
-                # Auto-rickshaw
-                options.append({
-                    "mode":         "auto",
-                    "icon":         "🛺",
-                    "label":        "Auto-rickshaw",
-                    "duration":     driving_duration,
-                    "fare_estimate": _auto_fare(distance_km, req.city),
-                    "note":         "Metered in most cities. Confirm fare before boarding. Night charges (10 PM–5 AM) are usually 1.5×.",
-                    "steps":        [],
-                    "is_realtime":  False,
-                })
+        # Use real driving distance or haversine fallback for fare calculations
+        fare_km      = distance_km if distance_km > 0 else estimated_km
+        fare_dur_str = driving_duration if driving_duration else f"~{int(fare_km / 0.4)} min (est.)"
 
-                # Cab — Ola + Uber deep links
-                o_name = quote(req.origin_text or "Current location")
-                d_name = quote(req.destination_name)
-                ola_link = (
-                    f"https://book.olacabs.com/?pickup_lat={origin_coords[0]}"
-                    f"&pickup_lng={origin_coords[1]}&pickup_name={o_name}"
-                    f"&drop_lat={req.destination_lat}&drop_lng={req.destination_lng}"
-                    f"&drop_name={d_name}&category=auto"
-                )
-                uber_link = (
-                    f"https://m.uber.com/ul/?action=setPickup"
-                    f"&pickup[latitude]={origin_coords[0]}&pickup[longitude]={origin_coords[1]}"
-                    f"&pickup[nickname]={o_name}"
-                    f"&dropoff[latitude]={req.destination_lat}&dropoff[longitude]={req.destination_lng}"
-                    f"&dropoff[nickname]={d_name}"
-                )
-                options.append({
-                    "mode":         "cab",
-                    "icon":         "🚕",
-                    "label":        "Cab",
-                    "duration":     driving_duration,
-                    "fare_estimate": _cab_fare(distance_km, req.city),
-                    "note":         "Estimate only. Actual price shown in app. May surge during peak hours.",
-                    "ola_link":     ola_link,
-                    "uber_link":    uber_link,
-                    "steps":        [],
-                    "is_realtime":  False,
-                })
+        # Auto-rickshaw (always show — fares from official RTA rates)
+        options.append({
+            "mode":          "auto",
+            "icon":          "🛺",
+            "label":         "Auto-rickshaw",
+            "duration":      fare_dur_str,
+            "fare_estimate": _auto_fare(fare_km, req.city),
+            "note":          "Metered in most cities. Confirm fare before boarding. Night charges (10 PM–5 AM) are usually 1.5×."
+                             + ("" if distance_km > 0 else " (Fare based on straight-line estimate — actual may vary.)"),
+            "steps":         [],
+            "is_realtime":   False,
+        })
+
+        # Cab — Ola + Uber deep links (always show)
+        o_name    = quote(req.origin_text or "Current location")
+        d_name    = quote(req.destination_name)
+        ola_link  = (
+            f"https://book.olacabs.com/?pickup_lat={origin_coords[0]}"
+            f"&pickup_lng={origin_coords[1]}&pickup_name={o_name}"
+            f"&drop_lat={req.destination_lat}&drop_lng={req.destination_lng}"
+            f"&drop_name={d_name}&category=auto"
+        )
+        uber_link = (
+            f"https://m.uber.com/ul/?action=setPickup"
+            f"&pickup[latitude]={origin_coords[0]}&pickup[longitude]={origin_coords[1]}"
+            f"&pickup[nickname]={o_name}"
+            f"&dropoff[latitude]={req.destination_lat}&dropoff[longitude]={req.destination_lng}"
+            f"&dropoff[nickname]={d_name}"
+        )
+        options.append({
+            "mode":          "cab",
+            "icon":          "🚕",
+            "label":         "Cab",
+            "duration":      fare_dur_str,
+            "fare_estimate": _cab_fare(fare_km, req.city),
+            "note":          "Estimate only. Actual price shown in Ola/Uber app. May surge during peak hours.",
+            "ola_link":      ola_link,
+            "uber_link":     uber_link,
+            "steps":         [],
+            "is_realtime":   False,
+        })
 
         # ── Parse walking (only show if ≤ 3 km) ──────────────────────────────
         if not isinstance(walking_resp, Exception):
@@ -1050,6 +1154,97 @@ async def get_directions(req: DirectionsRequest):
                         "is_realtime":  False,
                     })
 
+        city_lower = req.city.lower().strip()
+
+        # ── Rapido bike taxi ──────────────────────────────────────────────────
+        # Available in 100+ Indian cities. Fastest in congested city traffic.
+        if city_lower in RAPIDO_CITIES and fare_km <= 20.0:
+            options.append({
+                "mode":          "rapido",
+                "icon":          "🛵",
+                "label":         "Rapido Bike Taxi",
+                "duration":      fare_dur_str,
+                "fare_estimate": _rapido_fare(fare_km, req.city),
+                "note":          "Quickest & cheapest motorised option in city traffic. No surge pricing on short rides. Helmets provided.",
+                "rapido_link":   "https://rapido.bike/",
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
+        # ── Share auto (South India fixed-route autos) ────────────────────────
+        if city_lower in SHARE_AUTO_CITIES and fare_km <= 8.0:
+            options.append({
+                "mode":          "share_auto",
+                "icon":          "🚐",
+                "label":         "Share Auto",
+                "duration":      "Varies by route",
+                "fare_estimate": "₹10–25 per person",
+                "note":          "Flag one down on the main road heading your direction. No app needed — ask locals for the right route. Stops are near bus stands and main junctions.",
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
+        # ── E-rickshaw / Toto ─────────────────────────────────────────────────
+        if city_lower in ERICKSHAW_CITIES and fare_km <= 5.0:
+            options.append({
+                "mode":          "erickshaw",
+                "icon":          "⚡",
+                "label":         "E-Rickshaw / Toto",
+                "duration":      "Short trips only",
+                "fare_estimate": "₹20–50",
+                "note":          ERICKSHAW_CITIES[city_lower],
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
+        # ── Walk (straight-line fallback when API unavailable) ───────────────
+        # If walking API gave us a route, it's already added. Add estimate if short.
+        has_walk = any(o["mode"] == "walk" for o in options)
+        if not has_walk and straight_km <= 2.5:
+            walk_min = int(straight_km * 12)  # ~5 km/h walking speed
+            options.append({
+                "mode":          "walk",
+                "icon":          "🚶",
+                "label":         "Walk",
+                "duration":      f"~{walk_min} min (est.)",
+                "fare_estimate": "Free",
+                "distance":      f"{straight_km:.1f} km (straight-line)",
+                "note":          "Short enough to walk. Use Google Maps for exact footpath directions.",
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
+        # ── Ferry / Boat ──────────────────────────────────────────────────────
+        if city_lower in FERRY_CITIES:
+            options.append({
+                "mode":          "ferry",
+                "icon":          "⛴️",
+                "label":         "Ferry / Boat",
+                "duration":      "Varies by route",
+                "fare_estimate": "₹5–200",
+                "note":          FERRY_CITIES[city_lower],
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
+        # ── City bus fallback (when GTFS/transit data unavailable) ────────────
+        has_transit = any(o["mode"] == "transit" for o in options)
+        if not has_transit:
+            bus_note = CITY_BUS_NOTES.get(
+                city_lower,
+                "City buses likely operate on this route. Ask at the nearest bus stop or check the state RTC website for route numbers. Fare usually ₹5–30.",
+            )
+            options.append({
+                "mode":          "transit",
+                "icon":          "🚌",
+                "label":         "City Bus",
+                "duration":      "Varies",
+                "fare_estimate": "₹5–30",
+                "note":          bus_note,
+                "steps":         [],
+                "is_realtime":   False,
+            })
+
         if not options:
             raise HTTPException(
                 status_code=404,
@@ -1059,6 +1254,6 @@ async def get_directions(req: DirectionsRequest):
         return {
             "origin":      req.origin_text or "Your location",
             "destination": req.destination_name,
-            "distance_km": round(distance_km, 1),
+            "distance_km": round(fare_km, 1),
             "options":     options,
         }

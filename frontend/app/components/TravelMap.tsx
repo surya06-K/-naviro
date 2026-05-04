@@ -468,6 +468,7 @@ export default function TravelMap({
                 destinationLat={slot.coordinates.lat}
                 destinationLng={slot.coordinates.lng}
                 city={destination}
+                localTransportHint={slot.how_to_get_there}
                 onBack={() => setShowDirections(false)}
               />
             </div>

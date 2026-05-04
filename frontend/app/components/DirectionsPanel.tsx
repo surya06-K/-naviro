@@ -24,7 +24,7 @@ interface TransitStep {
 }
 
 interface TransportOption {
-  mode: "transit" | "auto" | "cab" | "walk";
+  mode: "transit" | "auto" | "cab" | "walk" | "rapido" | "share_auto" | "erickshaw" | "ferry";
   icon: string;
   label: string;
   duration: string;
@@ -33,6 +33,7 @@ interface TransportOption {
   note?: string;
   ola_link?: string;
   uber_link?: string;
+  rapido_link?: string;
   agencies?: string[];
   is_realtime?: boolean;
   steps: TransitStep[];
@@ -50,6 +51,7 @@ interface Props {
   destinationLat: number;
   destinationLng: number;
   city: string;
+  localTransportHint?: string;   // AI-generated how_to_get_there from the slot
   onBack: () => void;
 }
 
@@ -68,21 +70,29 @@ function vehicleIcon(type?: string): string {
 
 function ModeColor(mode: string): string {
   switch (mode) {
-    case "transit": return "border-blue-700/60 bg-blue-950/30";
-    case "auto":    return "border-yellow-700/60 bg-yellow-950/30";
-    case "cab":     return "border-green-700/60 bg-green-950/30";
-    case "walk":    return "border-zinc-700/60 bg-zinc-900/40";
-    default:        return "border-zinc-700/60 bg-zinc-900/40";
+    case "transit":    return "border-blue-700/60 bg-blue-950/30";
+    case "auto":       return "border-yellow-700/60 bg-yellow-950/30";
+    case "cab":        return "border-green-700/60 bg-green-950/30";
+    case "walk":       return "border-zinc-700/60 bg-zinc-900/40";
+    case "rapido":     return "border-orange-700/60 bg-orange-950/30";
+    case "share_auto": return "border-purple-700/60 bg-purple-950/30";
+    case "erickshaw":  return "border-teal-700/60 bg-teal-950/30";
+    case "ferry":      return "border-cyan-700/60 bg-cyan-950/30";
+    default:           return "border-zinc-700/60 bg-zinc-900/40";
   }
 }
 
 function ModeAccent(mode: string): string {
   switch (mode) {
-    case "transit": return "text-blue-300";
-    case "auto":    return "text-yellow-300";
-    case "cab":     return "text-green-300";
-    case "walk":    return "text-zinc-300";
-    default:        return "text-zinc-300";
+    case "transit":    return "text-blue-300";
+    case "auto":       return "text-yellow-300";
+    case "cab":        return "text-green-300";
+    case "walk":       return "text-zinc-300";
+    case "rapido":     return "text-orange-300";
+    case "share_auto": return "text-purple-300";
+    case "erickshaw":  return "text-teal-300";
+    case "ferry":      return "text-cyan-300";
+    default:           return "text-zinc-300";
   }
 }
 
@@ -192,25 +202,27 @@ function TransportCard({ option }: { option: TransportOption }) {
       {option.mode === "cab" && (
         <div className="flex gap-2 mt-3">
           {option.ola_link && (
-            <a
-              href={option.ola_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 text-center py-2 rounded-xl bg-yellow-900/40 border border-yellow-700/50 text-yellow-300 text-xs font-semibold hover:bg-yellow-800/50 transition-colors"
-            >
+            <a href={option.ola_link} target="_blank" rel="noopener noreferrer"
+              className="flex-1 text-center py-2 rounded-xl bg-yellow-900/40 border border-yellow-700/50 text-yellow-300 text-xs font-semibold hover:bg-yellow-800/50 transition-colors">
               🟡 Open in Ola
             </a>
           )}
           {option.uber_link && (
-            <a
-              href={option.uber_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 text-center py-2 rounded-xl bg-zinc-800/60 border border-zinc-700 text-zinc-200 text-xs font-semibold hover:bg-zinc-700/60 transition-colors"
-            >
+            <a href={option.uber_link} target="_blank" rel="noopener noreferrer"
+              className="flex-1 text-center py-2 rounded-xl bg-zinc-800/60 border border-zinc-700 text-zinc-200 text-xs font-semibold hover:bg-zinc-700/60 transition-colors">
               ⚫ Open in Uber
             </a>
           )}
+        </div>
+      )}
+
+      {/* Rapido button */}
+      {option.mode === "rapido" && option.rapido_link && (
+        <div className="mt-3">
+          <a href={option.rapido_link} target="_blank" rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-orange-900/40 border border-orange-700/50 text-orange-300 text-xs font-semibold hover:bg-orange-800/50 transition-colors">
+            🛵 Open Rapido
+          </a>
         </div>
       )}
 
@@ -232,6 +244,7 @@ export default function DirectionsPanel({
   destinationLat,
   destinationLng,
   city,
+  localTransportHint,
   onBack,
 }: Props) {
   const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
@@ -388,6 +401,18 @@ export default function DirectionsPanel({
             <p className="text-zinc-600 text-xs">{city}</p>
           </div>
         </div>
+
+        {/* ── AI Local Transport Hint ───────────────────────────── */}
+        {localTransportHint && (
+          <div className="bg-amber-950/30 border border-amber-700/40 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-amber-400 text-sm">🧠</span>
+              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest">Naviro local tip</p>
+            </div>
+            <p className="text-amber-100/85 text-sm leading-relaxed">{localTransportHint}</p>
+            <p className="text-amber-700 text-[10px] mt-2">AI-generated · specific to this place</p>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-950/40 border border-red-800/50 rounded-xl px-4 py-3">
