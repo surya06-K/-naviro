@@ -185,9 +185,8 @@ export default function TravelMap({
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (polylineRef.current) { polylineRef.current.remove(); polylineRef.current = null; }
-
-      const day = days[activeDay];
-      if (!day) return;
+const day = days[activeDay];
+if (!day || !Array.isArray(day.slots)) return;  // ← the fix
 
       const validSlots = day.slots.filter(
         (s) => s.coordinates?.lat && s.coordinates?.lng &&
