@@ -322,7 +322,7 @@ export default function TravelMap({
             {/* Day tabs */}
             {totalDays > 1 && (
               <div className="flex gap-1.5 mt-3 flex-wrap">
-                {days.map((d, i) => (
+                {(days ?? []).map((d, i) => (
                   <button key={i} onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
@@ -435,7 +435,7 @@ export default function TravelMap({
 
       {/* ── Left legend ──────────────────────────────────────── */}
       <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
-        {day?.slots.map((s, i) => {
+      {(day?.slots ?? []).map((s, i) => {
           const tsi   = getTimeSlotIndex(s.time_of_day, i);
           const num   = getDisplayNumber(s.time_of_day, i);
           const label = TIME_LABELS[tsi] ?? s.time_of_day;
