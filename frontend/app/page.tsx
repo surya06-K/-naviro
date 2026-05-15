@@ -245,9 +245,8 @@ export default function Home() {
         const err = await res.json();
         throw new Error(err.detail ?? "Something went wrong");
       }
-      const data = await res.json();
-
-      if (data.itinerary) {
+      const data = await res.jsonh
+      if (data.itinerary && Array.isArray(data.itinerary.days) && data.itinerary.days.length > 0)  {
         setItinerary(data.itinerary);
         setLiveDays(data.itinerary.days);
         setActiveDay(0);
