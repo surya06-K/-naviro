@@ -133,17 +133,17 @@ export default function TravelMap({
         100% { transform: rotate(-45deg) scale(1)   translateY(0);    opacity: 1; }
       }
       @keyframes fadeInLine { from { opacity: 0; } to { opacity: 1; } }
-      .leaflet-container { background: #0a1020 !important; }
+      .leaflet-container { background: #0d1117 !important; }
       .leaflet-control-zoom a {
-        background: rgba(15,26,46,0.9) !important; color: #94a3b8 !important;
-        border-color: rgba(30,58,95,0.8) !important; backdrop-filter: blur(8px);
+        background: rgba(22,27,34,0.9) !important; color: #8b949e !important;
+        border-color: #2d333b !important; backdrop-filter: blur(8px);
       }
-      .leaflet-control-zoom a:hover { background: rgba(30,58,95,0.9) !important; color: #e2e8f0 !important; }
+      .leaflet-control-zoom a:hover { background: rgba(28,33,40,0.95) !important; color: #e6edf3 !important; }
       .leaflet-control-attribution {
-        background: rgba(7,13,27,0.75) !important; color: #475569 !important;
+        background: rgba(13,17,23,0.75) !important; color: #484f58 !important;
         font-size: 10px !important; backdrop-filter: blur(4px);
       }
-      .leaflet-control-attribution a { color: #64748b !important; }
+      .leaflet-control-attribution a { color: #8b949e !important; }
     `;
     if (!document.getElementById("travel-map-styles")) document.head.appendChild(style);
 
@@ -228,7 +228,7 @@ export default function TravelMap({
       if (latlngs.length > 1) {
         setTimeout(() => {
           polylineRef.current = L.polyline(latlngs, {
-            color: "rgba(79,70,229,0.35)", weight: 2.5, dashArray: "6 10",
+            color: "rgba(57,112,145,0.4)", weight: 2.5, dashArray: "6 10",
           }).addTo(map);
         }, validSlots.length * 380 + 150);
       }
@@ -287,29 +287,29 @@ export default function TravelMap({
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#0a1020]">
+    <div className="relative w-full h-screen overflow-hidden bg-[#0d1117]">
       {/* ── Map canvas ───────────────────────────────────────── */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-[#0f1a2e]/90 backdrop-blur-lg rounded-2xl p-3.5 border border-[#1e3a5f]/80 shadow-xl">
+          <div className="bg-[#161b22]/90 backdrop-blur-lg rounded-2xl p-3.5 border border-[#2d333b] shadow-xl">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-amber-500/70 text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
-                <h1 className="text-slate-100 font-bold text-xl leading-tight truncate">{destination}</h1>
-                <p className="text-slate-500 text-xs mt-0.5 line-clamp-1">{summary}</p>
+                <p className="text-[#397091] text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
+                <h1 className="text-[#e6edf3] font-bold text-xl leading-tight truncate">{destination}</h1>
+                <p className="text-[#8b949e] text-xs mt-0.5 line-clamp-1">{summary}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0 mt-1">
-                {loading && <span className="text-slate-600 text-xs animate-pulse">Updating…</span>}
+                {loading && <span className="text-[#484f58] text-xs animate-pulse">Updating…</span>}
                 <button
                   onClick={() => setShowEmergency(!showEmergency)}
                   title="Safety & Emergency Info"
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                     showEmergency
                       ? "bg-red-900/40 border-red-700/50 text-red-400"
-                      : "bg-[#162033] border-[#1e3a5f] text-slate-500 hover:text-slate-300 hover:border-slate-600"
+                      : "bg-[#1c2128] border-[#2d333b] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58]"
                   }`}
                 >
                   🛡️ <span className="hidden sm:inline">Safety</span>
@@ -330,8 +330,8 @@ export default function TravelMap({
                   <button key={i} onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
-                        ? "bg-amber-500 text-black shadow-sm"
-                        : "bg-[#162033] text-slate-500 hover:bg-[#1e3a5f] hover:text-slate-300"
+                        ? "bg-[#397091] text-white shadow-sm"
+                        : "bg-[#1c2128] text-[#8b949e] hover:bg-[#2d333b] hover:text-[#e6edf3]"
                     }`}>
                     Day {d.day_number}
                   </button>
@@ -345,7 +345,7 @@ export default function TravelMap({
                 onClick={() => safeSlots.forEach((s) =>
                   window.open(buildCalendarUrl(s, day?.day_number ?? 1, destination), "_blank")
                 )}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#162033] border border-[#1e3a5f] text-slate-500 text-xs font-medium hover:border-slate-600 hover:text-slate-300 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1c2128] border border-[#2d333b] text-[#8b949e] text-xs font-medium hover:border-[#484f58] hover:text-[#e6edf3] transition-colors"
               >
                 📅 Export Day {day?.day_number} to Calendar
               </button>
@@ -358,34 +358,34 @@ export default function TravelMap({
       {showEmergency && (
         <div className="absolute inset-0 z-20 flex items-end justify-center p-3 pointer-events-none">
           <div className="max-w-xl w-full pointer-events-auto">
-            <div className="bg-[#0f1a2e]/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
+            <div className="bg-[#161b22]/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-slate-100 font-bold text-base">🛡️ Safety & Emergency</h2>
-                  <p className="text-slate-500 text-xs">{destination}</p>
+                  <h2 className="text-[#e6edf3] font-bold text-base">🛡️ Safety & Emergency</h2>
+                  <p className="text-[#8b949e] text-xs">{destination}</p>
                 </div>
                 <button onClick={() => setShowEmergency(false)}
-                  className="text-slate-600 hover:text-slate-300 transition-colors text-xl leading-none">×</button>
+                  className="text-[#484f58] hover:text-[#e6edf3] transition-colors text-xl leading-none">×</button>
               </div>
 
               {!emergency ? (
-                <p className="text-slate-600 text-sm animate-pulse">Loading safety info…</p>
+                <p className="text-[#484f58] text-sm animate-pulse">Loading safety info…</p>
               ) : (
                 <div className="space-y-3">
                   <div className="bg-red-900/30 border border-red-800/40 rounded-xl p-3">
                     <p className="text-red-400 text-xs font-semibold mb-1">🚨 Emergency Number</p>
-                    <p className="text-slate-100 font-bold text-2xl">{emergency.emergency_number}</p>
+                    <p className="text-[#e6edf3] font-bold text-2xl">{emergency.emergency_number}</p>
                   </div>
 
                   {(emergency.hospitals || []).length > 0 && (
                     <div>
-                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
                       <div className="space-y-2">
                         {emergency.hospitals.map((h: any, i: number) => (
-                          <div key={i} className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
-                            <p className="text-slate-200 text-sm font-semibold">{h.name}</p>
-                            <p className="text-slate-500 text-xs">{h.address}</p>
-                            {h.phone && <p className="text-slate-400 text-xs mt-1">📞 {h.phone}</p>}
+                          <div key={i} className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
+                            <p className="text-[#e6edf3] text-sm font-semibold">{h.name}</p>
+                            <p className="text-[#8b949e] text-xs">{h.address}</p>
+                            {h.phone && <p className="text-[#8b949e] text-xs mt-1">📞 {h.phone}</p>}
                           </div>
                         ))}
                       </div>
@@ -394,12 +394,12 @@ export default function TravelMap({
 
                   {emergency.police_station && (
                     <div>
-                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
-                      <div className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
-                        <p className="text-slate-200 text-sm font-semibold">{emergency.police_station.name}</p>
-                        <p className="text-slate-500 text-xs">{emergency.police_station.address}</p>
+                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                      <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
+                        <p className="text-[#e6edf3] text-sm font-semibold">{emergency.police_station.name}</p>
+                        <p className="text-[#8b949e] text-xs">{emergency.police_station.address}</p>
                         {emergency.police_station.phone && (
-                          <p className="text-slate-400 text-xs mt-1">📞 {emergency.police_station.phone}</p>
+                          <p className="text-[#8b949e] text-xs mt-1">📞 {emergency.police_station.phone}</p>
                         )}
                       </div>
                     </div>
@@ -407,12 +407,12 @@ export default function TravelMap({
 
                   {emergency.embassy && (
                     <div>
-                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
-                      <div className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
-                        <p className="text-slate-200 text-sm font-semibold">{emergency.embassy.country}</p>
-                        <p className="text-slate-500 text-xs">{emergency.embassy.address}</p>
+                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
+                      <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
+                        <p className="text-[#e6edf3] text-sm font-semibold">{emergency.embassy.country}</p>
+                        <p className="text-[#8b949e] text-xs">{emergency.embassy.address}</p>
                         {emergency.embassy.phone && (
-                          <p className="text-slate-400 text-xs mt-1">📞 {emergency.embassy.phone}</p>
+                          <p className="text-[#8b949e] text-xs mt-1">📞 {emergency.embassy.phone}</p>
                         )}
                       </div>
                     </div>
@@ -420,11 +420,11 @@ export default function TravelMap({
 
                   {emergency.safety_tips?.length > 0 && (
                     <div>
-                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
+                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
                       <div className="space-y-1">
                         {emergency.safety_tips.map((tip: string, i: number) => (
-                          <p key={i} className="text-slate-500 text-xs flex gap-2">
-                            <span className="text-slate-700 shrink-0">•</span>{tip}
+                          <p key={i} className="text-[#8b949e] text-xs flex gap-2">
+                            <span className="text-[#484f58] shrink-0">•</span>{tip}
                           </p>
                         ))}
                       </div>
@@ -449,8 +449,8 @@ export default function TravelMap({
               onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
               className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
                 selectedSlot === i
-                  ? "bg-amber-500 text-black border-amber-500 shadow-amber-500/20"
-                  : "bg-[#0f1a2e]/85 text-slate-400 border-[#1e3a5f]/70 hover:border-amber-500/40 hover:text-slate-200"
+                  ? "bg-[#397091] text-white border-[#397091]"
+                  : "bg-[#161b22]/85 text-[#8b949e] border-[#2d333b] hover:border-[#397091] hover:text-[#e6edf3]"
               }`}
             >
               <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -484,7 +484,7 @@ export default function TravelMap({
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
         <div className="max-w-xl mx-auto">
           {slot ? (
-            <div className="bg-[#0f1a2e]/95 backdrop-blur-lg rounded-2xl p-4 border border-[#1e3a5f]/80 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-[#161b22]/95 backdrop-blur-lg rounded-2xl p-4 border border-[#2d333b] shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -492,36 +492,36 @@ export default function TravelMap({
                     {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-slate-100 font-semibold truncate">{slot.place_name}</h2>
-                    <p className="text-slate-500 text-xs capitalize">
+                    <h2 className="text-[#e6edf3] font-semibold truncate">{slot.place_name}</h2>
+                    <p className="text-[#8b949e] text-xs capitalize">
                       {slotTimeIdx !== null ? TIME_ICONS[slotTimeIdx] : "📍"} {slot.time_of_day} · {slot.category}
                     </p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedSlot(null)}
-                  className="text-slate-600 hover:text-slate-300 transition-colors shrink-0 text-xl leading-none">×</button>
+                  className="text-[#484f58] hover:text-[#e6edf3] transition-colors shrink-0 text-xl leading-none">×</button>
               </div>
 
-              <p className="text-slate-400 text-sm mb-3 leading-relaxed">{slot.description}</p>
+              <p className="text-[#8b949e] text-sm mb-3 leading-relaxed">{slot.description}</p>
 
               <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
-                  <p className="text-slate-600 mb-0.5">⏱ Duration</p>
-                  <p className="text-slate-300 font-medium">{slot.estimated_duration}</p>
+                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
+                  <p className="text-[#484f58] mb-0.5">⏱ Duration</p>
+                  <p className="text-[#e6edf3] font-medium">{slot.estimated_duration}</p>
                 </div>
-                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
-                  <p className="text-slate-600 mb-0.5">💰 Cost</p>
-                  <p className="text-slate-300 font-medium">{slot.estimated_cost}</p>
+                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
+                  <p className="text-[#484f58] mb-0.5">💰 Cost</p>
+                  <p className="text-[#e6edf3] font-medium">{slot.estimated_cost}</p>
                 </div>
-                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
-                  <p className="text-slate-600 mb-0.5">🚌 Transport</p>
-                  <p className="text-slate-300 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
+                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
+                  <p className="text-[#484f58] mb-0.5">🚌 Transport</p>
+                  <p className="text-[#e6edf3] font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
                 </div>
               </div>
 
-              <div className="bg-amber-950/40 border border-amber-800/30 rounded-lg p-2.5 text-xs mb-3">
-                <p className="text-amber-400 font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-amber-200/70">{slot.local_tip}</p>
+              <div className="rounded-lg p-2.5 text-xs mb-3" style={{ background: "rgba(57,112,145,0.1)", border: "1px solid rgba(57,112,145,0.2)" }}>
+                <p className="text-[#4a8ab0] font-semibold mb-0.5">💡 Local tip</p>
+                <p className="text-[#8b949e]">{slot.local_tip}</p>
               </div>
 
               {/* Booking links */}
@@ -548,23 +548,28 @@ export default function TravelMap({
               {/* Directions button */}
               <button
                 onClick={() => setShowDirections(true)}
-                className="w-full py-2.5 rounded-xl bg-amber-500 text-black text-sm font-semibold hover:bg-amber-400 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                style={{ background: "#397091" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#4a8ab0")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#397091")}
               >
                 🧭 Get me there →
               </button>
             </div>
           ) : (
             <form onSubmit={handleRefine}
-              className="bg-[#0f1a2e]/90 backdrop-blur-lg border border-[#1e3a5f]/70 rounded-2xl p-2 flex gap-2 shadow-xl">
+              className="bg-[#161b22]/90 backdrop-blur-lg border border-[#2d333b] rounded-2xl p-2 flex gap-2 shadow-xl">
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-[#e6edf3] placeholder-[#484f58] outline-none"
                 disabled={loading}
               />
               <button type="submit" disabled={loading || !refineMsg.trim()}
-                className="bg-amber-500 text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-amber-400 transition-colors shrink-0">
+                className="text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 transition-colors shrink-0"
+                style={{ background: "#397091" }}
+              >
                 {loading ? "…" : "Update →"}
               </button>
             </form>

@@ -29,6 +29,22 @@ interface Itinerary {
   days: Day[];
 }
 
+// ─── Palette constants ────────────────────────────────────────────────────────
+const C = {
+  bg:      "#0d1117",
+  surface: "#161b22",
+  surface2:"#1c2128",
+  border:  "#2d333b",
+  muted:   "#8b949e",
+  text:    "#e6edf3",
+  dim:     "#484f58",
+  accent:  "#397091",
+  accentH: "#4a8ab0",
+  accentL: "#6bb3d9",
+  glow:    "rgba(57,112,145,0.25)",
+  glowSm:  "rgba(57,112,145,0.12)",
+} as const;
+
 // ─── Filter config ────────────────────────────────────────────────────────────
 const VIBES = [
   { label: "Street Food", icon: "🍜" },
@@ -60,7 +76,6 @@ const PACES = [
   { label: "Packed", icon: "⚡", sub: "max places" },
 ];
 
-// ─── Popular destinations ─────────────────────────────────────────────────────
 const POPULAR_DESTINATIONS = [
   { name: "Goa", icon: "🌊", desc: "Beaches & culture" },
   { name: "Jaipur", icon: "🏰", desc: "The Pink City" },
@@ -72,7 +87,6 @@ const POPULAR_DESTINATIONS = [
   { name: "Hampi", icon: "🗿", desc: "Ancient ruins" },
 ];
 
-// ─── Seasonal picks (by month 0–11) ──────────────────────────────────────────
 const SEASONAL: Record<number, { label: string; cities: string[] }> = {
   0:  { label: "Best in January",   cities: ["Jaisalmer", "Goa", "Mysuru"] },
   1:  { label: "Best in February",  cities: ["Hampi", "Coorg", "Pondicherry"] },
@@ -88,7 +102,6 @@ const SEASONAL: Record<number, { label: string; cities: string[] }> = {
   11: { label: "Best in December",  cities: ["Goa", "Rann of Kutch", "Jaipur"] },
 };
 
-// ─── Rotating placeholders ────────────────────────────────────────────────────
 const PLACEHOLDERS = [
   "Try Goa…",
   "Try Jaipur…",
@@ -103,8 +116,8 @@ const PLACEHOLDERS = [
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center bg-[#070d1b]">
-      <div className="text-slate-600 text-sm animate-pulse">Loading map…</div>
+    <div className="w-full h-screen flex items-center justify-center" style={{ background: C.bg }}>
+      <div className="text-sm animate-pulse" style={{ color: C.dim }}>Loading map…</div>
     </div>
   ),
 });
@@ -123,16 +136,30 @@ function Chip({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition-all ${
+      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition-all"
+      style={
         selected
-          ? "bg-amber-500 text-black border-amber-500 font-semibold shadow-sm shadow-amber-500/20"
-          : "bg-[#0f1a2e] text-slate-400 border-[#1e3a5f] hover:border-amber-500/40 hover:text-slate-200"
-      }`}
+          ? { background: C.accent, color: "#fff", borderColor: C.accent, fontWeight: 600,
+              boxShadow: `0 2px 12px ${C.glow}` }
+          : { background: C.surface, color: C.muted, borderColor: C.border }
+      }
+      onMouseEnter={(e) => {
+        if (!selected) {
+          e.currentTarget.style.borderColor = C.accent;
+          e.currentTarget.style.color = C.text;
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) {
+          e.currentTarget.style.borderColor = C.border;
+          e.currentTarget.style.color = C.muted;
+        }
+      }}
     >
       <span>{icon}</span>
       <span>{label}</span>
       {sub && (
-        <span className={`text-xs ${selected ? "text-black/60" : "text-slate-600"}`}>{sub}</span>
+        <span className="text-xs" style={{ color: selected ? "rgba(255,255,255,0.6)" : C.dim }}>{sub}</span>
       )}
     </button>
   );
@@ -140,7 +167,7 @@ function Chip({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-slate-600 text-xs uppercase tracking-widest mb-2 font-medium">{children}</p>
+    <p className="text-xs uppercase tracking-widest mb-2 font-medium" style={{ color: C.dim }}>{children}</p>
   );
 }
 
@@ -301,31 +328,31 @@ export default function Home() {
 
   // ── Landing ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen lg:flex" style={{ background: "#070d1b" }}>
+    <div className="min-h-screen lg:flex" style={{ background: C.bg }}>
 
       {/* ════════════════════════════════════════════════════════
           LEFT — Form
       ════════════════════════════════════════════════════════ */}
       <div
-        className="w-full lg:w-[44%] flex flex-col justify-center px-8 xl:px-14 py-12 min-h-screen lg:overflow-y-auto"
-        style={{ background: "#070d1b" }}
+        className="w-full lg:w-[44%] flex flex-col justify-center px-8 xl:px-14 py-14 min-h-screen lg:overflow-y-auto"
+        style={{ background: C.bg }}
       >
-        <div className="w-full max-w-md mx-auto space-y-7">
+        <div className="w-full max-w-md mx-auto space-y-8">
 
           {/* Logo */}
-          <div className="space-y-1">
-            <h1 className="text-4xl font-bold tracking-tight text-slate-100">
-              Navi<span className="text-amber-500">ro</span>
+          <div className="space-y-2">
+            <h1 className="text-5xl font-bold tracking-tight" style={{ color: C.text }}>
+              Navi<span style={{ color: C.accent }}>ro</span>
             </h1>
             {isCityStep ? (
               <>
-                <p className="text-slate-500 text-base">
+                <p className="text-base" style={{ color: C.muted }}>
                   Pick your city first. We&apos;ll tune the trip next.
                 </p>
-                <p className="text-slate-700 text-xs pt-0.5">✦ 2,400+ trips planned</p>
+                <p className="text-xs pt-0.5" style={{ color: C.dim }}>✦ 2,400+ trips planned</p>
               </>
             ) : (
-              <p className="text-slate-500 text-base">
+              <p className="text-base" style={{ color: C.muted }}>
                 Tell me who you are. I&apos;ll plan for you, not for everyone.
               </p>
             )}
@@ -341,18 +368,18 @@ export default function Home() {
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder={PLACEHOLDERS[placeholderIdx]}
-                className="w-full rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 outline-none text-sm transition-all"
+                className="w-full rounded-xl px-4 py-3.5 text-sm outline-none transition-all"
                 style={{
-                  background: "#0f1a2e",
-                  border: "1px solid #1e3a5f",
-                  boxShadow: "none",
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                  color: C.text,
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = "#f59e0b";
-                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.12)";
+                  e.currentTarget.style.borderColor = C.accent;
+                  e.currentTarget.style.boxShadow = `0 0 0 3px ${C.glowSm}`;
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = "#1e3a5f";
+                  e.currentTarget.style.borderColor = C.border;
                   e.currentTarget.style.boxShadow = "none";
                 }}
                 disabled={loading}
@@ -362,7 +389,7 @@ export default function Home() {
             {/* ── City step ──────────────────────────────────────── */}
             {isCityStep && (
               <>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <SectionLabel>🌤 {seasonal.label}</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {seasonal.cities.map((c) => (
@@ -370,10 +397,16 @@ export default function Home() {
                         key={c}
                         type="button"
                         onClick={() => pickDestination(c)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-slate-400 hover:text-amber-400"
-                        style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                        className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                        style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.muted }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = C.accent;
+                          e.currentTarget.style.color = C.accentL;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = C.border;
+                          e.currentTarget.style.color = C.muted;
+                        }}
                       >
                         {c}
                       </button>
@@ -381,7 +414,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <SectionLabel>Popular right now</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {POPULAR_DESTINATIONS.map((d) => (
@@ -389,10 +422,16 @@ export default function Home() {
                         key={d.name}
                         type="button"
                         onClick={() => pickDestination(d.name)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all text-slate-300 hover:text-amber-400"
-                        style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
+                        style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = C.accent;
+                          e.currentTarget.style.color = C.accentL;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = C.border;
+                          e.currentTarget.style.color = C.text;
+                        }}
                       >
                         <span>{d.icon}</span>
                         {d.name}
@@ -402,7 +441,7 @@ export default function Home() {
                 </div>
 
                 {pastDestinations.length > 0 && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <SectionLabel>Your past trips</SectionLabel>
                     <div className="flex flex-wrap gap-2">
                       {pastDestinations.slice(0, 5).map((d) => (
@@ -410,10 +449,16 @@ export default function Home() {
                           key={d}
                           type="button"
                           onClick={() => pickDestination(d)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-slate-500 hover:text-amber-400"
-                          style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                          style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.dim }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = C.accent;
+                            e.currentTarget.style.color = C.accentL;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = C.border;
+                            e.currentTarget.style.color = C.dim;
+                          }}
                         >
                           🕐 {d}
                         </button>
@@ -431,20 +476,26 @@ export default function Home() {
                   <SectionLabel>How long</SectionLabel>
                   <div
                     className="w-fit flex items-center gap-1 rounded-xl px-3"
-                    style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
+                    style={{ background: C.surface, border: `1px solid ${C.border}` }}
                   >
                     <button
                       type="button"
                       onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
-                      className="text-slate-500 hover:text-amber-400 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                      className="w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                      style={{ color: C.dim }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = C.accent)}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = C.dim)}
                     >−</button>
-                    <span className="text-slate-100 text-sm font-semibold w-14 text-center">
+                    <span className="text-sm font-semibold w-14 text-center" style={{ color: C.text }}>
                       {days} {Number(days) === 1 ? "day" : "days"}
                     </span>
                     <button
                       type="button"
                       onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
-                      className="text-slate-500 hover:text-amber-400 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                      className="w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                      style={{ color: C.dim }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = C.accent)}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = C.dim)}
                     >+</button>
                   </div>
                 </div>
@@ -453,13 +504,8 @@ export default function Home() {
                   <SectionLabel>What you love</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {VIBES.map((v) => (
-                      <Chip
-                        key={v.label}
-                        icon={v.icon}
-                        label={v.label}
-                        selected={selectedVibes.includes(v.label)}
-                        onClick={() => toggleVibe(v.label)}
-                      />
+                      <Chip key={v.label} icon={v.icon} label={v.label}
+                        selected={selectedVibes.includes(v.label)} onClick={() => toggleVibe(v.label)} />
                     ))}
                   </div>
                 </div>
@@ -468,13 +514,9 @@ export default function Home() {
                   <SectionLabel>Travelling as</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {TRAVEL_STYLES.map((s) => (
-                      <Chip
-                        key={s.label}
-                        icon={s.icon}
-                        label={s.label}
+                      <Chip key={s.label} icon={s.icon} label={s.label}
                         selected={travelStyle === s.label}
-                        onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))}
-                      />
+                        onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))} />
                     ))}
                   </div>
                 </div>
@@ -483,14 +525,9 @@ export default function Home() {
                   <SectionLabel>Budget</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {BUDGETS.map((b) => (
-                      <Chip
-                        key={b.label}
-                        icon={b.icon}
-                        label={b.label}
-                        sub={b.sub}
+                      <Chip key={b.label} icon={b.icon} label={b.label} sub={b.sub}
                         selected={budget === b.label}
-                        onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))}
-                      />
+                        onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))} />
                     ))}
                   </div>
                 </div>
@@ -499,14 +536,9 @@ export default function Home() {
                   <SectionLabel>Pace</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {PACES.map((p) => (
-                      <Chip
-                        key={p.label}
-                        icon={p.icon}
-                        label={p.label}
-                        sub={p.sub}
+                      <Chip key={p.label} icon={p.icon} label={p.label} sub={p.sub}
                         selected={pace === p.label}
-                        onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))}
-                      />
+                        onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))} />
                     ))}
                   </div>
                 </div>
@@ -517,16 +549,18 @@ export default function Home() {
               <p className="text-red-400 text-sm px-1">⚠️ {error}</p>
             )}
 
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2.5 pt-2">
               <button
                 type="submit"
                 disabled={!canSubmit}
                 className="w-full py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-40"
                 style={{
-                  background: canSubmit ? "#f59e0b" : "#f59e0b",
-                  color: "#000",
-                  boxShadow: canSubmit ? "0 4px 20px rgba(245,158,11,0.25)" : "none",
+                  background: C.accent,
+                  color: "#fff",
+                  boxShadow: canSubmit ? `0 4px 20px ${C.glow}` : "none",
                 }}
+                onMouseEnter={(e) => { if (canSubmit) e.currentTarget.style.background = C.accentH; }}
+                onMouseLeave={(e) => { if (canSubmit) e.currentTarget.style.background = C.accent; }}
               >
                 {loading ? "Planning your trip…" : isCityStep ? "Continue →" : "Plan my trip →"}
               </button>
@@ -536,10 +570,16 @@ export default function Home() {
                   type="button"
                   onClick={surpriseMe}
                   disabled={loading}
-                  className="w-full py-3 rounded-2xl font-medium text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                  style={{ border: "1px solid #1e3a5f" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#334155")}
-                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                  className="w-full py-3 rounded-2xl font-medium text-sm transition-all"
+                  style={{ border: `1px solid ${C.border}`, color: C.muted }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = C.accent;
+                    e.currentTarget.style.color = C.text;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = C.border;
+                    e.currentTarget.style.color = C.muted;
+                  }}
                 >
                   🎲 Surprise me — pick a destination
                 </button>
@@ -549,10 +589,16 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setFormStep("city")}
-                  className="w-full py-3 rounded-2xl font-medium text-sm text-slate-500 hover:text-slate-300 transition-colors"
-                  style={{ border: "1px solid #1e3a5f" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#334155")}
-                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                  className="w-full py-3 rounded-2xl font-medium text-sm transition-all"
+                  style={{ border: `1px solid ${C.border}`, color: C.muted }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = C.border;
+                    e.currentTarget.style.color = C.text;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = C.border;
+                    e.currentTarget.style.color = C.muted;
+                  }}
                 >
                   ← Edit city
                 </button>
@@ -567,48 +613,47 @@ export default function Home() {
       ════════════════════════════════════════════════════════ */}
       <div
         className="hidden lg:flex lg:w-[56%] sticky top-0 h-screen overflow-hidden flex-col"
-        style={{ background: "#0a1020" }}
+        style={{ background: "#0a0e14" }}
       >
-        {/* Star-field dots */}
+        {/* Star-field */}
         <div
-          className="absolute inset-0 opacity-30"
+          className="absolute inset-0 opacity-20"
           style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.35) 1px, transparent 0)",
-            backgroundSize: "36px 36px",
+            backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)",
+            backgroundSize: "40px 40px",
           }}
         />
-        {/* Amber glow top-right */}
+        {/* Steel blue glow */}
         <div
-          className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full opacity-[0.07]"
+          className="absolute rounded-full"
           style={{
-            background: "radial-gradient(circle, #f59e0b 0%, transparent 70%)",
-            transform: "translate(20%, -20%)",
+            top: "-10%", right: "-5%", width: "600px", height: "600px",
+            background: `radial-gradient(circle, ${C.accent} 0%, transparent 65%)`,
+            opacity: 0.08,
           }}
         />
-        {/* Subtle blue glow bottom-left */}
+        {/* Secondary glow */}
         <div
-          className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full opacity-[0.06]"
+          className="absolute rounded-full"
           style={{
-            background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)",
-            transform: "translate(-30%, 30%)",
+            bottom: "5%", left: "-10%", width: "400px", height: "400px",
+            background: `radial-gradient(circle, ${C.accentL} 0%, transparent 70%)`,
+            opacity: 0.05,
           }}
         />
 
-        {/* ── Content ── */}
         <div className="relative z-10 flex flex-col justify-center h-full px-12 xl:px-16 py-12">
 
           {isCityStep ? (
-            /* City step */
             <div className="space-y-9">
               <div>
-                <p className="text-amber-500/70 text-sm font-medium mb-3 tracking-wide">
-                  ✦ 2,400+ trips planned across India
+                <p className="text-sm font-medium mb-3 tracking-wide" style={{ color: C.accent }}>
+                  ✦ AI-powered travel planning
                 </p>
-                <h2 className="text-slate-100 text-5xl font-bold leading-[1.1] tracking-tight">
+                <h2 className="text-5xl font-bold leading-[1.1] tracking-tight" style={{ color: C.text }}>
                   Where will<br />you go next?
                 </h2>
-                <p className="text-slate-500 mt-4 text-base leading-relaxed max-w-sm">
+                <p className="mt-4 text-base leading-relaxed max-w-sm" style={{ color: C.muted }}>
                   Type a destination and we&apos;ll craft you a personalized,
                   day-by-day itinerary in seconds.
                 </p>
@@ -622,36 +667,28 @@ export default function Home() {
                     type="button"
                     onClick={() => pickDestination(d.name)}
                     className="group flex items-center gap-3 p-4 rounded-2xl text-left transition-all"
-                    style={{
-                      background: "rgba(15,26,46,0.7)",
-                      border: "1px solid rgba(30,58,95,0.8)",
-                    }}
+                    style={{ background: "rgba(22,27,34,0.7)", border: `1px solid ${C.border}` }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(245,158,11,0.35)";
-                      e.currentTarget.style.background = "rgba(245,158,11,0.04)";
+                      e.currentTarget.style.borderColor = C.accent;
+                      e.currentTarget.style.background = `rgba(57,112,145,0.06)`;
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(30,58,95,0.8)";
-                      e.currentTarget.style.background = "rgba(15,26,46,0.7)";
+                      e.currentTarget.style.borderColor = C.border;
+                      e.currentTarget.style.background = "rgba(22,27,34,0.7)";
                     }}
                   >
                     <span className="text-3xl">{d.icon}</span>
                     <div>
-                      <p className="text-slate-200 text-sm font-semibold group-hover:text-amber-400 transition-colors">
-                        {d.name}
-                      </p>
-                      <p className="text-slate-600 text-xs">{d.desc}</p>
+                      <p className="text-sm font-semibold transition-colors" style={{ color: C.text }}>{d.name}</p>
+                      <p className="text-xs" style={{ color: C.dim }}>{d.desc}</p>
                     </div>
                   </button>
                 ))}
               </div>
 
               {/* Seasonal card */}
-              <div
-                className="rounded-2xl p-4"
-                style={{ background: "rgba(15,26,46,0.5)", border: "1px solid rgba(30,58,95,0.6)" }}
-              >
-                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-3">
+              <div className="rounded-2xl p-4" style={{ background: "rgba(22,27,34,0.5)", border: `1px solid ${C.border}` }}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: C.dim }}>
                   🌤 {seasonal.label}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -660,10 +697,16 @@ export default function Home() {
                       key={c}
                       type="button"
                       onClick={() => pickDestination(c)}
-                      className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-amber-400 transition-colors"
-                      style={{ background: "rgba(30,58,95,0.4)", border: "1px solid rgba(30,58,95,0.6)" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.3)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(30,58,95,0.6)")}
+                      className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                      style={{ background: "rgba(45,51,59,0.5)", border: `1px solid ${C.border}`, color: C.muted }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = C.accent;
+                        e.currentTarget.style.color = C.accentL;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = C.border;
+                        e.currentTarget.style.color = C.muted;
+                      }}
                     >
                       {c}
                     </button>
@@ -675,8 +718,8 @@ export default function Home() {
               <div className="flex items-center gap-8">
                 {[["100+", "Cities"], ["3", "Travel modes"], ["Instant", "Planning"]].map(([val, lbl]) => (
                   <div key={lbl}>
-                    <p className="text-amber-400 font-bold text-xl">{val}</p>
-                    <p className="text-slate-600 text-xs mt-0.5">{lbl}</p>
+                    <p className="font-bold text-xl" style={{ color: C.accent }}>{val}</p>
+                    <p className="text-xs mt-0.5" style={{ color: C.dim }}>{lbl}</p>
                   </div>
                 ))}
               </div>
@@ -686,29 +729,26 @@ export default function Home() {
             /* Filters step — live preview */
             <div className="space-y-7">
               <div>
-                <p className="text-amber-500/70 text-sm font-medium mb-2 tracking-wide">
+                <p className="text-sm font-medium mb-2 tracking-wide" style={{ color: C.accent }}>
                   ✦ Trip preview
                 </p>
-                <h2 className="text-slate-100 text-4xl font-bold tracking-tight">{city}</h2>
-                <p className="text-slate-500 text-base mt-1">Your personalized trip is taking shape.</p>
+                <h2 className="text-4xl font-bold tracking-tight" style={{ color: C.text }}>{city}</h2>
+                <p className="text-base mt-1" style={{ color: C.muted }}>
+                  Your personalized trip is taking shape.
+                </p>
               </div>
 
               {/* Preview card */}
-              <div
-                className="rounded-2xl p-5 space-y-5"
-                style={{ background: "rgba(15,26,46,0.7)", border: "1px solid rgba(30,58,95,0.8)" }}
-              >
-                {/* Days */}
+              <div className="rounded-2xl p-5 space-y-5" style={{ background: "rgba(22,27,34,0.7)", border: `1px solid ${C.border}` }}>
+
                 <div>
-                  <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2.5">
-                    Duration
-                  </p>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.dim }}>Duration</p>
                   <div className="flex gap-1.5 flex-wrap">
                     {Array.from({ length: Number(days) }).map((_, i) => (
                       <div
                         key={i}
-                        className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-300 text-xs font-bold"
-                        style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)" }}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold"
+                        style={{ background: C.glowSm, border: `1px solid rgba(57,112,145,0.2)`, color: C.accentL }}
                       >
                         {i + 1}
                       </div>
@@ -716,23 +756,17 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Vibes */}
                 {selectedVibes.length > 0 && (
                   <div>
-                    <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2.5">
-                      Your vibes
-                    </p>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.dim }}>Your vibes</p>
                     <div className="flex flex-wrap gap-1.5">
                       {selectedVibes.map((v) => {
                         const vibe = VIBES.find((x) => x.label === v);
                         return (
                           <span
                             key={v}
-                            className="flex items-center gap-1 px-2.5 py-1 text-amber-300 text-xs rounded-lg"
-                            style={{
-                              background: "rgba(245,158,11,0.1)",
-                              border: "1px solid rgba(245,158,11,0.2)",
-                            }}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg"
+                            style={{ background: C.glowSm, border: `1px solid rgba(57,112,145,0.2)`, color: C.accentL }}
                           >
                             {vibe?.icon} {v}
                           </span>
@@ -742,14 +776,13 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Style / Budget / Pace */}
                 {(travelStyle || budget || pace) && (
                   <div className="flex flex-wrap gap-1.5">
                     {[travelStyle, budget, pace].filter(Boolean).map((tag) => (
                       <span
                         key={tag}
-                        className="px-2.5 py-1 text-slate-400 text-xs rounded-lg"
-                        style={{ background: "rgba(30,58,95,0.5)", border: "1px solid rgba(30,58,95,0.8)" }}
+                        className="px-2.5 py-1 text-xs rounded-lg"
+                        style={{ background: `rgba(45,51,59,0.6)`, border: `1px solid ${C.border}`, color: C.muted }}
                       >
                         {tag}
                       </span>
@@ -757,23 +790,18 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Prompt */}
-                <div style={{ borderTop: "1px solid rgba(30,58,95,0.6)", paddingTop: "1rem" }}>
-                  <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "1rem" }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: C.dim }}>
                     AI will plan for:
                   </p>
-                  <p className="text-slate-400 text-sm italic leading-relaxed">
+                  <p className="text-sm italic leading-relaxed" style={{ color: C.muted }}>
                     &ldquo;{buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace)}&rdquo;
                   </p>
                 </div>
               </div>
 
-              {/* What you'll get */}
-              <div
-                className="rounded-2xl p-4"
-                style={{ background: "rgba(15,26,46,0.4)", border: "1px solid rgba(30,58,95,0.5)" }}
-              >
-                <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-3">
+              <div className="rounded-2xl p-4" style={{ background: "rgba(22,27,34,0.4)", border: `1px solid rgba(45,51,59,0.5)` }}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: C.dim }}>
                   What you&apos;ll get
                 </p>
                 <div className="space-y-2.5">
@@ -785,7 +813,7 @@ export default function Home() {
                   ].map(([icon, text]) => (
                     <div key={text} className="flex items-center gap-2.5">
                       <span className="text-base">{icon}</span>
-                      <span className="text-slate-500 text-xs">{text}</span>
+                      <span className="text-xs" style={{ color: C.muted }}>{text}</span>
                     </div>
                   ))}
                 </div>
