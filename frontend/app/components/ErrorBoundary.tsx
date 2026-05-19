@@ -1,10 +1,10 @@
 "use client";
 
-import { Component, ReactNode } from "react";
+import React from "react";
 
 interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
 }
 
 interface State {
@@ -12,19 +12,22 @@ interface State {
   message: string;
 }
 
-export default class ErrorBoundary extends Component<Props, State> {
+export default class ErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, message: "" };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, message: error?.message ?? "Unknown error" };
+  static getDerivedStateFromError(error: unknown): State {
+    const message =
+      error instanceof Error ? error.message : "An unexpected error occurred";
+    return { hasError: true, message };
   }
 
-  render() {
+  override render(): React.ReactNode {
     if (this.state.hasError) {
-      return this.props.fallback ?? (
+      if (this.props.fallback != null) return this.props.fallback;
+      return (
         <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-black">
           <p className="text-3xl mb-4">⚠️</p>
           <h2 className="text-white font-bold text-xl mb-2">Something went wrong</h2>
