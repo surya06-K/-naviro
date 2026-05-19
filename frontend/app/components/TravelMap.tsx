@@ -41,7 +41,7 @@ interface Props {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PIN_COLORS = ["#f97316", "#facc15", "#a855f7"];
+const PIN_COLORS = ["#f97316", "#7c3aed", "#0ea5e9"];
 const TIME_LABELS = ["Morning", "Afternoon", "Evening"];
 const TIME_ICONS = ["🌅", "☀️", "🌙"];
 
@@ -133,17 +133,17 @@ export default function TravelMap({
         100% { transform: rotate(-45deg) scale(1)   translateY(0);    opacity: 1; }
       }
       @keyframes fadeInLine { from { opacity: 0; } to { opacity: 1; } }
-      .leaflet-container { background: #111 !important; }
+      .leaflet-container { background: #f1f5f9 !important; }
       .leaflet-control-zoom a {
-        background: rgba(0,0,0,0.75) !important; color: #e4e4e7 !important;
-        border-color: rgba(255,255,255,0.15) !important; backdrop-filter: blur(8px);
+        background: #ffffff !important; color: #374151 !important;
+        border-color: #e5e7eb !important; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
       }
-      .leaflet-control-zoom a:hover { background: rgba(0,0,0,0.9) !important; color: #fff !important; }
+      .leaflet-control-zoom a:hover { background: #f9fafb !important; color: #111827 !important; }
       .leaflet-control-attribution {
-        background: rgba(0,0,0,0.55) !important; color: #71717a !important;
+        background: rgba(255,255,255,0.85) !important; color: #9ca3af !important;
         font-size: 10px !important; backdrop-filter: blur(4px);
       }
-      .leaflet-control-attribution a { color: #a1a1aa !important; }
+      .leaflet-control-attribution a { color: #6b7280 !important; }
     `;
     if (!document.getElementById("travel-map-styles")) document.head.appendChild(style);
 
@@ -159,14 +159,17 @@ export default function TravelMap({
       mapRef.current = L.map(containerRef.current, {
         zoomControl: false, attributionControl: true, preferCanvas: true,
       }).setView([20.5937, 78.9629], 5);
+
+      // CartoDB Positron — clean light map
       L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 19, attribution: "© Esri, Maxar, Earthstar Geographics" }
+        "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+        {
+          maxZoom: 19,
+          attribution: "© <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors © <a href='https://carto.com/attributions'>CARTO</a>",
+          subdomains: "abcd",
+        }
       ).addTo(mapRef.current);
-      L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 19, opacity: 0.85 }
-      ).addTo(mapRef.current);
+
       L.control.zoom({ position: "bottomright" }).addTo(mapRef.current);
       setMapReady(true);
     });
@@ -207,9 +210,9 @@ export default function TravelMap({
         const delay = latlngs.length * 380;
 
         const icon = L.divIcon({
-          html: `<div style="width:44px;height:54px;position:relative;filter:drop-shadow(0 6px 12px rgba(0,0,0,0.7))">
-            <div style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:${color};border:3px solid rgba(255,255,255,0.95);border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards">
-              <span style="transform:rotate(45deg);font-size:16px;font-weight:900;color:#fff;font-family:system-ui,sans-serif;line-height:1;text-shadow:0 1px 3px rgba(0,0,0,0.4)">${num}</span>
+          html: `<div style="width:44px;height:54px;position:relative;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.25))">
+            <div style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:${color};border:3px solid #ffffff;border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards;box-shadow:0 2px 8px rgba(0,0,0,0.2)">
+              <span style="transform:rotate(45deg);font-size:16px;font-weight:900;color:#fff;font-family:system-ui,sans-serif;line-height:1">${num}</span>
             </div></div>`,
           className: "", iconSize: [44, 54], iconAnchor: [22, 54], popupAnchor: [0, -58],
         });
@@ -225,7 +228,7 @@ export default function TravelMap({
       if (latlngs.length > 1) {
         setTimeout(() => {
           polylineRef.current = L.polyline(latlngs, {
-            color: "rgba(255,255,255,0.2)", weight: 2, dashArray: "6 10",
+            color: "rgba(79,70,229,0.35)", weight: 2.5, dashArray: "6 10",
           }).addTo(map);
         }, validSlots.length * 380 + 150);
       }
@@ -284,36 +287,36 @@ export default function TravelMap({
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-black">
+    <div className="relative w-full h-screen overflow-hidden bg-slate-100">
       {/* ── Map canvas ───────────────────────────────────────── */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-black/75 backdrop-blur-lg rounded-2xl p-3.5 border border-zinc-800/80 shadow-xl">
+          <div className="bg-white/90 backdrop-blur-lg rounded-2xl p-3.5 border border-gray-200/80 shadow-lg">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-zinc-600 text-[10px] font-semibold tracking-widest uppercase mb-0.5">Naviro</p>
-                <h1 className="text-white font-bold text-xl leading-tight truncate">{destination}</h1>
-                <p className="text-zinc-400 text-xs mt-0.5 line-clamp-1">{summary}</p>
+                <p className="text-indigo-500 text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
+                <h1 className="text-gray-900 font-bold text-xl leading-tight truncate">{destination}</h1>
+                <p className="text-gray-500 text-xs mt-0.5 line-clamp-1">{summary}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0 mt-1">
-                {loading && <span className="text-zinc-500 text-xs animate-pulse">Updating…</span>}
+                {loading && <span className="text-gray-400 text-xs animate-pulse">Updating…</span>}
                 <button
                   onClick={() => setShowEmergency(!showEmergency)}
                   title="Safety & Emergency Info"
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                     showEmergency
-                      ? "bg-red-900/60 border-red-600/60 text-red-300"
-                      : "bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"
+                      ? "bg-red-50 border-red-300 text-red-600"
+                      : "bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
                 >
                   🛡️ <span className="hidden sm:inline">Safety</span>
                 </button>
                 <button
                   onClick={() => setShowLive(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-900/40 border border-green-700/50 text-green-300 text-xs font-medium hover:bg-green-800/50 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-medium hover:bg-green-100 transition-colors"
                 >
                   🔴 <span className="hidden sm:inline">Live</span>
                 </button>
@@ -327,8 +330,8 @@ export default function TravelMap({
                   <button key={i} onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
-                        ? "bg-white text-black shadow"
-                        : "bg-zinc-800/80 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700"
                     }`}>
                     Day {d.day_number}
                   </button>
@@ -342,7 +345,7 @@ export default function TravelMap({
                 onClick={() => safeSlots.forEach((s) =>
                   window.open(buildCalendarUrl(s, day?.day_number ?? 1, destination), "_blank")
                 )}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-medium hover:border-zinc-500 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 text-xs font-medium hover:border-gray-300 hover:text-gray-700 transition-colors"
               >
                 📅 Export Day {day?.day_number} to Calendar
               </button>
@@ -355,34 +358,34 @@ export default function TravelMap({
       {showEmergency && (
         <div className="absolute inset-0 z-20 flex items-end justify-center p-3 pointer-events-none">
           <div className="max-w-xl w-full pointer-events-auto">
-            <div className="bg-black/92 backdrop-blur-lg rounded-2xl p-4 border border-red-800/50 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
+            <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 border border-red-200 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-white font-bold text-base">🛡️ Safety & Emergency</h2>
-                  <p className="text-zinc-500 text-xs">{destination}</p>
+                  <h2 className="text-gray-900 font-bold text-base">🛡️ Safety & Emergency</h2>
+                  <p className="text-gray-500 text-xs">{destination}</p>
                 </div>
                 <button onClick={() => setShowEmergency(false)}
-                  className="text-zinc-500 hover:text-white transition-colors text-xl leading-none">×</button>
+                  className="text-gray-400 hover:text-gray-700 transition-colors text-xl leading-none">×</button>
               </div>
 
               {!emergency ? (
-                <p className="text-zinc-500 text-sm animate-pulse">Loading safety info…</p>
+                <p className="text-gray-400 text-sm animate-pulse">Loading safety info…</p>
               ) : (
                 <div className="space-y-3">
-                  <div className="bg-red-950/40 border border-red-800/40 rounded-xl p-3">
-                    <p className="text-red-400 text-xs font-semibold mb-1">🚨 Emergency Number</p>
-                    <p className="text-white font-bold text-2xl">{emergency.emergency_number}</p>
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                    <p className="text-red-500 text-xs font-semibold mb-1">🚨 Emergency Number</p>
+                    <p className="text-gray-900 font-bold text-2xl">{emergency.emergency_number}</p>
                   </div>
 
                   {(emergency.hospitals || []).length > 0 && (
                     <div>
-                      <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
                       <div className="space-y-2">
                         {emergency.hospitals.map((h: any, i: number) => (
-                          <div key={i} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3">
-                            <p className="text-white text-sm font-semibold">{h.name}</p>
-                            <p className="text-zinc-500 text-xs">{h.address}</p>
-                            {h.phone && <p className="text-zinc-400 text-xs mt-1">📞 {h.phone}</p>}
+                          <div key={i} className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                            <p className="text-gray-900 text-sm font-semibold">{h.name}</p>
+                            <p className="text-gray-500 text-xs">{h.address}</p>
+                            {h.phone && <p className="text-gray-600 text-xs mt-1">📞 {h.phone}</p>}
                           </div>
                         ))}
                       </div>
@@ -391,12 +394,12 @@ export default function TravelMap({
 
                   {emergency.police_station && (
                     <div>
-                      <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
-                      <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3">
-                        <p className="text-white text-sm font-semibold">{emergency.police_station.name}</p>
-                        <p className="text-zinc-500 text-xs">{emergency.police_station.address}</p>
+                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                        <p className="text-gray-900 text-sm font-semibold">{emergency.police_station.name}</p>
+                        <p className="text-gray-500 text-xs">{emergency.police_station.address}</p>
                         {emergency.police_station.phone && (
-                          <p className="text-zinc-400 text-xs mt-1">📞 {emergency.police_station.phone}</p>
+                          <p className="text-gray-600 text-xs mt-1">📞 {emergency.police_station.phone}</p>
                         )}
                       </div>
                     </div>
@@ -404,12 +407,12 @@ export default function TravelMap({
 
                   {emergency.embassy && (
                     <div>
-                      <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
-                      <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3">
-                        <p className="text-white text-sm font-semibold">{emergency.embassy.country}</p>
-                        <p className="text-zinc-500 text-xs">{emergency.embassy.address}</p>
+                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                        <p className="text-gray-900 text-sm font-semibold">{emergency.embassy.country}</p>
+                        <p className="text-gray-500 text-xs">{emergency.embassy.address}</p>
                         {emergency.embassy.phone && (
-                          <p className="text-zinc-400 text-xs mt-1">📞 {emergency.embassy.phone}</p>
+                          <p className="text-gray-600 text-xs mt-1">📞 {emergency.embassy.phone}</p>
                         )}
                       </div>
                     </div>
@@ -417,11 +420,11 @@ export default function TravelMap({
 
                   {emergency.safety_tips?.length > 0 && (
                     <div>
-                      <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
+                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
                       <div className="space-y-1">
                         {emergency.safety_tips.map((tip: string, i: number) => (
-                          <p key={i} className="text-zinc-400 text-xs flex gap-2">
-                            <span className="text-zinc-600 shrink-0">•</span>{tip}
+                          <p key={i} className="text-gray-600 text-xs flex gap-2">
+                            <span className="text-gray-300 shrink-0">•</span>{tip}
                           </p>
                         ))}
                       </div>
@@ -444,10 +447,10 @@ export default function TravelMap({
           return (
             <button key={i}
               onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
-              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
+              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-sm ${
                 selectedSlot === i
-                  ? "bg-white text-black border-white"
-                  : "bg-black/65 text-zinc-300 border-zinc-700/70 hover:border-zinc-500 hover:text-white"
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                  : "bg-white/90 text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-700"
               }`}
             >
               <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -461,7 +464,7 @@ export default function TravelMap({
 
       {/* ── Directions overlay ───────────────────────────────── */}
       {showDirections && slot && (
-        <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-sm">
+        <div className="absolute inset-0 z-30 bg-black/30 backdrop-blur-sm">
           <div className="absolute inset-0 flex items-end justify-center">
             <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl">
               <DirectionsPanel
@@ -481,7 +484,7 @@ export default function TravelMap({
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
         <div className="max-w-xl mx-auto">
           {slot ? (
-            <div className="bg-black/80 backdrop-blur-lg rounded-2xl p-4 border border-zinc-700/80 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 border border-gray-200 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -489,36 +492,36 @@ export default function TravelMap({
                     {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-white font-semibold truncate">{slot.place_name}</h2>
-                    <p className="text-zinc-500 text-xs capitalize">
+                    <h2 className="text-gray-900 font-semibold truncate">{slot.place_name}</h2>
+                    <p className="text-gray-500 text-xs capitalize">
                       {slotTimeIdx !== null ? TIME_ICONS[slotTimeIdx] : "📍"} {slot.time_of_day} · {slot.category}
                     </p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedSlot(null)}
-                  className="text-zinc-500 hover:text-white transition-colors shrink-0 text-xl leading-none">×</button>
+                  className="text-gray-400 hover:text-gray-700 transition-colors shrink-0 text-xl leading-none">×</button>
               </div>
 
-              <p className="text-zinc-300 text-sm mb-3 leading-relaxed">{slot.description}</p>
+              <p className="text-gray-700 text-sm mb-3 leading-relaxed">{slot.description}</p>
 
               <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-zinc-800/60 rounded-lg p-2.5">
-                  <p className="text-zinc-500 mb-0.5">⏱ Duration</p>
-                  <p className="text-zinc-200 font-medium">{slot.estimated_duration}</p>
+                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                  <p className="text-gray-400 mb-0.5">⏱ Duration</p>
+                  <p className="text-gray-800 font-medium">{slot.estimated_duration}</p>
                 </div>
-                <div className="bg-zinc-800/60 rounded-lg p-2.5">
-                  <p className="text-zinc-500 mb-0.5">💰 Cost</p>
-                  <p className="text-zinc-200 font-medium">{slot.estimated_cost}</p>
+                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                  <p className="text-gray-400 mb-0.5">💰 Cost</p>
+                  <p className="text-gray-800 font-medium">{slot.estimated_cost}</p>
                 </div>
-                <div className="bg-zinc-800/60 rounded-lg p-2.5">
-                  <p className="text-zinc-500 mb-0.5">🚌 Transport</p>
-                  <p className="text-zinc-200 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
+                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                  <p className="text-gray-400 mb-0.5">🚌 Transport</p>
+                  <p className="text-gray-800 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
                 </div>
               </div>
 
-              <div className="bg-amber-950/50 border border-amber-800/40 rounded-lg p-2.5 text-xs mb-3">
-                <p className="text-amber-400 font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-amber-100/80">{slot.local_tip}</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs mb-3">
+                <p className="text-amber-600 font-semibold mb-0.5">💡 Local tip</p>
+                <p className="text-amber-800/80">{slot.local_tip}</p>
               </div>
 
               {/* Booking links */}
@@ -526,18 +529,18 @@ export default function TravelMap({
                 {!["food", "cultural", "market"].includes(slot.category) && (
                   <a href={`https://www.booking.com/search.html?ss=${encodeURIComponent(slot.place_name + " " + destination)}`}
                     target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900/40 border border-blue-700/50 text-blue-300 text-xs font-medium hover:bg-blue-800/50 transition-colors">
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-100 transition-colors">
                     🏨 Booking.com
                   </a>
                 )}
                 <a href={`https://www.makemytrip.com/hotels/hotel-listing/?cityCode=${encodeURIComponent(destination)}`}
                   target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 text-xs font-medium hover:bg-red-800/50 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium hover:bg-red-100 transition-colors">
                   ✈️ MakeMyTrip
                 </a>
                 <a href={`https://www.skyscanner.co.in/flights-to/${encodeURIComponent(destination.toLowerCase().replace(/\s+/g, "-"))}`}
                   target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-900/40 border border-teal-700/50 text-teal-300 text-xs font-medium hover:bg-teal-800/50 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-200 text-teal-700 text-xs font-medium hover:bg-teal-100 transition-colors">
                   🛫 Skyscanner
                 </a>
               </div>
@@ -545,23 +548,23 @@ export default function TravelMap({
               {/* Directions button */}
               <button
                 onClick={() => setShowDirections(true)}
-                className="w-full py-2.5 rounded-xl bg-white text-black text-sm font-semibold hover:bg-zinc-100 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
               >
                 🧭 Get me there →
               </button>
             </div>
           ) : (
             <form onSubmit={handleRefine}
-              className="bg-black/70 backdrop-blur-lg border border-zinc-700/70 rounded-2xl p-2 flex gap-2 shadow-2xl">
+              className="bg-white/90 backdrop-blur-lg border border-gray-200 rounded-2xl p-2 flex gap-2 shadow-lg">
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-gray-800 placeholder-gray-400 outline-none"
                 disabled={loading}
               />
               <button type="submit" disabled={loading || !refineMsg.trim()}
-                className="bg-white text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-zinc-200 transition-colors shrink-0">
+                className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-indigo-700 transition-colors shrink-0">
                 {loading ? "…" : "Update →"}
               </button>
             </form>

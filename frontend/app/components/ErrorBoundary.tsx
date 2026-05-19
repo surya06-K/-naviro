@@ -28,13 +28,13 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback != null) return this.props.fallback;
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-black">
+        <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-white">
           <p className="text-3xl mb-4">⚠️</p>
-          <h2 className="text-white font-bold text-xl mb-2">Something went wrong</h2>
-          <p className="text-zinc-500 text-sm mb-6 max-w-sm">{this.state.message}</p>
+          <h2 className="text-gray-900 font-bold text-xl mb-2">Something went wrong</h2>
+          <p className="text-gray-500 text-sm mb-6 max-w-sm">{this.state.message}</p>
           <button
             onClick={() => this.setState({ hasError: false, message: "" })}
-            className="px-6 py-3 bg-white text-black rounded-2xl font-semibold text-sm hover:bg-zinc-100 transition-colors"
+            className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-semibold text-sm hover:bg-indigo-700 transition-colors"
           >
             Try again
           </button>
