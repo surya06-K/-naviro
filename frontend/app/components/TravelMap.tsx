@@ -436,11 +436,7 @@ export default function TravelMap({
 
       {/* ── Left legend ──────────────────────────────────────── */}
       <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
-<<<<<<< HEAD
-      {(day?.slots ?? []).map((s, i) => {
-=======
         {safeSlots.map((s, i) => {
->>>>>>> ae33dc4 (fix: add error boundary + defensive guards to prevent page crash)
           const tsi   = getTimeSlotIndex(s.time_of_day, i);
           const num   = getDisplayNumber(s.time_of_day, i);
           const label = TIME_LABELS[tsi] ?? s.time_of_day;
