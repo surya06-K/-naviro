@@ -133,17 +133,17 @@ export default function TravelMap({
         100% { transform: rotate(-45deg) scale(1)   translateY(0);    opacity: 1; }
       }
       @keyframes fadeInLine { from { opacity: 0; } to { opacity: 1; } }
-      .leaflet-container { background: #f1f5f9 !important; }
+      .leaflet-container { background: #0a1020 !important; }
       .leaflet-control-zoom a {
-        background: #ffffff !important; color: #374151 !important;
-        border-color: #e5e7eb !important; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+        background: rgba(15,26,46,0.9) !important; color: #94a3b8 !important;
+        border-color: rgba(30,58,95,0.8) !important; backdrop-filter: blur(8px);
       }
-      .leaflet-control-zoom a:hover { background: #f9fafb !important; color: #111827 !important; }
+      .leaflet-control-zoom a:hover { background: rgba(30,58,95,0.9) !important; color: #e2e8f0 !important; }
       .leaflet-control-attribution {
-        background: rgba(255,255,255,0.85) !important; color: #9ca3af !important;
+        background: rgba(7,13,27,0.75) !important; color: #475569 !important;
         font-size: 10px !important; backdrop-filter: blur(4px);
       }
-      .leaflet-control-attribution a { color: #6b7280 !important; }
+      .leaflet-control-attribution a { color: #64748b !important; }
     `;
     if (!document.getElementById("travel-map-styles")) document.head.appendChild(style);
 
@@ -160,9 +160,9 @@ export default function TravelMap({
         zoomControl: false, attributionControl: true, preferCanvas: true,
       }).setView([20.5937, 78.9629], 5);
 
-      // CartoDB Positron — clean light map
+      // CartoDB Dark Matter — deep dark map
       L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
         {
           maxZoom: 19,
           attribution: "© <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors © <a href='https://carto.com/attributions'>CARTO</a>",
@@ -287,36 +287,36 @@ export default function TravelMap({
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-slate-100">
+    <div className="relative w-full h-screen overflow-hidden bg-[#0a1020]">
       {/* ── Map canvas ───────────────────────────────────────── */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-white/90 backdrop-blur-lg rounded-2xl p-3.5 border border-gray-200/80 shadow-lg">
+          <div className="bg-[#0f1a2e]/90 backdrop-blur-lg rounded-2xl p-3.5 border border-[#1e3a5f]/80 shadow-xl">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-indigo-500 text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
-                <h1 className="text-gray-900 font-bold text-xl leading-tight truncate">{destination}</h1>
-                <p className="text-gray-500 text-xs mt-0.5 line-clamp-1">{summary}</p>
+                <p className="text-amber-500/70 text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
+                <h1 className="text-slate-100 font-bold text-xl leading-tight truncate">{destination}</h1>
+                <p className="text-slate-500 text-xs mt-0.5 line-clamp-1">{summary}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0 mt-1">
-                {loading && <span className="text-gray-400 text-xs animate-pulse">Updating…</span>}
+                {loading && <span className="text-slate-600 text-xs animate-pulse">Updating…</span>}
                 <button
                   onClick={() => setShowEmergency(!showEmergency)}
                   title="Safety & Emergency Info"
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                     showEmergency
-                      ? "bg-red-50 border-red-300 text-red-600"
-                      : "bg-gray-50 border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                      ? "bg-red-900/40 border-red-700/50 text-red-400"
+                      : "bg-[#162033] border-[#1e3a5f] text-slate-500 hover:text-slate-300 hover:border-slate-600"
                   }`}
                 >
                   🛡️ <span className="hidden sm:inline">Safety</span>
                 </button>
                 <button
                   onClick={() => setShowLive(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs font-medium hover:bg-green-100 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-900/30 border border-green-800/50 text-green-400 text-xs font-medium hover:bg-green-900/50 transition-colors"
                 >
                   🔴 <span className="hidden sm:inline">Live</span>
                 </button>
@@ -330,8 +330,8 @@ export default function TravelMap({
                   <button key={i} onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700"
+                        ? "bg-amber-500 text-black shadow-sm"
+                        : "bg-[#162033] text-slate-500 hover:bg-[#1e3a5f] hover:text-slate-300"
                     }`}>
                     Day {d.day_number}
                   </button>
@@ -345,7 +345,7 @@ export default function TravelMap({
                 onClick={() => safeSlots.forEach((s) =>
                   window.open(buildCalendarUrl(s, day?.day_number ?? 1, destination), "_blank")
                 )}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-gray-500 text-xs font-medium hover:border-gray-300 hover:text-gray-700 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#162033] border border-[#1e3a5f] text-slate-500 text-xs font-medium hover:border-slate-600 hover:text-slate-300 transition-colors"
               >
                 📅 Export Day {day?.day_number} to Calendar
               </button>
@@ -358,34 +358,34 @@ export default function TravelMap({
       {showEmergency && (
         <div className="absolute inset-0 z-20 flex items-end justify-center p-3 pointer-events-none">
           <div className="max-w-xl w-full pointer-events-auto">
-            <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 border border-red-200 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
+            <div className="bg-[#0f1a2e]/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-gray-900 font-bold text-base">🛡️ Safety & Emergency</h2>
-                  <p className="text-gray-500 text-xs">{destination}</p>
+                  <h2 className="text-slate-100 font-bold text-base">🛡️ Safety & Emergency</h2>
+                  <p className="text-slate-500 text-xs">{destination}</p>
                 </div>
                 <button onClick={() => setShowEmergency(false)}
-                  className="text-gray-400 hover:text-gray-700 transition-colors text-xl leading-none">×</button>
+                  className="text-slate-600 hover:text-slate-300 transition-colors text-xl leading-none">×</button>
               </div>
 
               {!emergency ? (
-                <p className="text-gray-400 text-sm animate-pulse">Loading safety info…</p>
+                <p className="text-slate-600 text-sm animate-pulse">Loading safety info…</p>
               ) : (
                 <div className="space-y-3">
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                    <p className="text-red-500 text-xs font-semibold mb-1">🚨 Emergency Number</p>
-                    <p className="text-gray-900 font-bold text-2xl">{emergency.emergency_number}</p>
+                  <div className="bg-red-900/30 border border-red-800/40 rounded-xl p-3">
+                    <p className="text-red-400 text-xs font-semibold mb-1">🚨 Emergency Number</p>
+                    <p className="text-slate-100 font-bold text-2xl">{emergency.emergency_number}</p>
                   </div>
 
                   {(emergency.hospitals || []).length > 0 && (
                     <div>
-                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
                       <div className="space-y-2">
                         {emergency.hospitals.map((h: any, i: number) => (
-                          <div key={i} className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                            <p className="text-gray-900 text-sm font-semibold">{h.name}</p>
-                            <p className="text-gray-500 text-xs">{h.address}</p>
-                            {h.phone && <p className="text-gray-600 text-xs mt-1">📞 {h.phone}</p>}
+                          <div key={i} className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
+                            <p className="text-slate-200 text-sm font-semibold">{h.name}</p>
+                            <p className="text-slate-500 text-xs">{h.address}</p>
+                            {h.phone && <p className="text-slate-400 text-xs mt-1">📞 {h.phone}</p>}
                           </div>
                         ))}
                       </div>
@@ -394,12 +394,12 @@ export default function TravelMap({
 
                   {emergency.police_station && (
                     <div>
-                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                        <p className="text-gray-900 text-sm font-semibold">{emergency.police_station.name}</p>
-                        <p className="text-gray-500 text-xs">{emergency.police_station.address}</p>
+                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                      <div className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
+                        <p className="text-slate-200 text-sm font-semibold">{emergency.police_station.name}</p>
+                        <p className="text-slate-500 text-xs">{emergency.police_station.address}</p>
                         {emergency.police_station.phone && (
-                          <p className="text-gray-600 text-xs mt-1">📞 {emergency.police_station.phone}</p>
+                          <p className="text-slate-400 text-xs mt-1">📞 {emergency.police_station.phone}</p>
                         )}
                       </div>
                     </div>
@@ -407,12 +407,12 @@ export default function TravelMap({
 
                   {emergency.embassy && (
                     <div>
-                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                        <p className="text-gray-900 text-sm font-semibold">{emergency.embassy.country}</p>
-                        <p className="text-gray-500 text-xs">{emergency.embassy.address}</p>
+                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
+                      <div className="bg-[#162033] border border-[#1e3a5f] rounded-xl p-3">
+                        <p className="text-slate-200 text-sm font-semibold">{emergency.embassy.country}</p>
+                        <p className="text-slate-500 text-xs">{emergency.embassy.address}</p>
                         {emergency.embassy.phone && (
-                          <p className="text-gray-600 text-xs mt-1">📞 {emergency.embassy.phone}</p>
+                          <p className="text-slate-400 text-xs mt-1">📞 {emergency.embassy.phone}</p>
                         )}
                       </div>
                     </div>
@@ -420,11 +420,11 @@ export default function TravelMap({
 
                   {emergency.safety_tips?.length > 0 && (
                     <div>
-                      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
+                      <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
                       <div className="space-y-1">
                         {emergency.safety_tips.map((tip: string, i: number) => (
-                          <p key={i} className="text-gray-600 text-xs flex gap-2">
-                            <span className="text-gray-300 shrink-0">•</span>{tip}
+                          <p key={i} className="text-slate-500 text-xs flex gap-2">
+                            <span className="text-slate-700 shrink-0">•</span>{tip}
                           </p>
                         ))}
                       </div>
@@ -447,10 +447,10 @@ export default function TravelMap({
           return (
             <button key={i}
               onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
-              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-sm ${
+              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
                 selectedSlot === i
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
-                  : "bg-white/90 text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-700"
+                  ? "bg-amber-500 text-black border-amber-500 shadow-amber-500/20"
+                  : "bg-[#0f1a2e]/85 text-slate-400 border-[#1e3a5f]/70 hover:border-amber-500/40 hover:text-slate-200"
               }`}
             >
               <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -484,7 +484,7 @@ export default function TravelMap({
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
         <div className="max-w-xl mx-auto">
           {slot ? (
-            <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 border border-gray-200 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-[#0f1a2e]/95 backdrop-blur-lg rounded-2xl p-4 border border-[#1e3a5f]/80 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -492,36 +492,36 @@ export default function TravelMap({
                     {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-gray-900 font-semibold truncate">{slot.place_name}</h2>
-                    <p className="text-gray-500 text-xs capitalize">
+                    <h2 className="text-slate-100 font-semibold truncate">{slot.place_name}</h2>
+                    <p className="text-slate-500 text-xs capitalize">
                       {slotTimeIdx !== null ? TIME_ICONS[slotTimeIdx] : "📍"} {slot.time_of_day} · {slot.category}
                     </p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedSlot(null)}
-                  className="text-gray-400 hover:text-gray-700 transition-colors shrink-0 text-xl leading-none">×</button>
+                  className="text-slate-600 hover:text-slate-300 transition-colors shrink-0 text-xl leading-none">×</button>
               </div>
 
-              <p className="text-gray-700 text-sm mb-3 leading-relaxed">{slot.description}</p>
+              <p className="text-slate-400 text-sm mb-3 leading-relaxed">{slot.description}</p>
 
               <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                  <p className="text-gray-400 mb-0.5">⏱ Duration</p>
-                  <p className="text-gray-800 font-medium">{slot.estimated_duration}</p>
+                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
+                  <p className="text-slate-600 mb-0.5">⏱ Duration</p>
+                  <p className="text-slate-300 font-medium">{slot.estimated_duration}</p>
                 </div>
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                  <p className="text-gray-400 mb-0.5">💰 Cost</p>
-                  <p className="text-gray-800 font-medium">{slot.estimated_cost}</p>
+                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
+                  <p className="text-slate-600 mb-0.5">💰 Cost</p>
+                  <p className="text-slate-300 font-medium">{slot.estimated_cost}</p>
                 </div>
-                <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                  <p className="text-gray-400 mb-0.5">🚌 Transport</p>
-                  <p className="text-gray-800 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
+                <div className="bg-[#162033] border border-[#1e3a5f] rounded-lg p-2.5">
+                  <p className="text-slate-600 mb-0.5">🚌 Transport</p>
+                  <p className="text-slate-300 font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs mb-3">
-                <p className="text-amber-600 font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-amber-800/80">{slot.local_tip}</p>
+              <div className="bg-amber-950/40 border border-amber-800/30 rounded-lg p-2.5 text-xs mb-3">
+                <p className="text-amber-400 font-semibold mb-0.5">💡 Local tip</p>
+                <p className="text-amber-200/70">{slot.local_tip}</p>
               </div>
 
               {/* Booking links */}
@@ -529,18 +529,18 @@ export default function TravelMap({
                 {!["food", "cultural", "market"].includes(slot.category) && (
                   <a href={`https://www.booking.com/search.html?ss=${encodeURIComponent(slot.place_name + " " + destination)}`}
                     target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-100 transition-colors">
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900/30 border border-blue-800/40 text-blue-400 text-xs font-medium hover:bg-blue-900/50 transition-colors">
                     🏨 Booking.com
                   </a>
                 )}
                 <a href={`https://www.makemytrip.com/hotels/hotel-listing/?cityCode=${encodeURIComponent(destination)}`}
                   target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium hover:bg-red-100 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/30 border border-red-800/40 text-red-400 text-xs font-medium hover:bg-red-900/50 transition-colors">
                   ✈️ MakeMyTrip
                 </a>
                 <a href={`https://www.skyscanner.co.in/flights-to/${encodeURIComponent(destination.toLowerCase().replace(/\s+/g, "-"))}`}
                   target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-200 text-teal-700 text-xs font-medium hover:bg-teal-100 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-900/30 border border-teal-800/40 text-teal-400 text-xs font-medium hover:bg-teal-900/50 transition-colors">
                   🛫 Skyscanner
                 </a>
               </div>
@@ -548,23 +548,23 @@ export default function TravelMap({
               {/* Directions button */}
               <button
                 onClick={() => setShowDirections(true)}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl bg-amber-500 text-black text-sm font-semibold hover:bg-amber-400 transition-colors flex items-center justify-center gap-2"
               >
                 🧭 Get me there →
               </button>
             </div>
           ) : (
             <form onSubmit={handleRefine}
-              className="bg-white/90 backdrop-blur-lg border border-gray-200 rounded-2xl p-2 flex gap-2 shadow-lg">
+              className="bg-[#0f1a2e]/90 backdrop-blur-lg border border-[#1e3a5f]/70 rounded-2xl p-2 flex gap-2 shadow-xl">
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-gray-800 placeholder-gray-400 outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none"
                 disabled={loading}
               />
               <button type="submit" disabled={loading || !refineMsg.trim()}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-indigo-700 transition-colors shrink-0">
+                className="bg-amber-500 text-black px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-amber-400 transition-colors shrink-0">
                 {loading ? "…" : "Update →"}
               </button>
             </form>

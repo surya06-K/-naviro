@@ -103,8 +103,8 @@ const PLACEHOLDERS = [
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center bg-white">
-      <div className="text-gray-400 text-sm animate-pulse">Loading map…</div>
+    <div className="w-full h-screen flex items-center justify-center bg-[#070d1b]">
+      <div className="text-slate-600 text-sm animate-pulse">Loading map…</div>
     </div>
   ),
 });
@@ -120,16 +120,19 @@ function Chip({
   icon: string; label: string; sub?: string; selected: boolean; onClick: () => void;
 }) {
   return (
-    <button type="button" onClick={onClick}
+    <button
+      type="button"
+      onClick={onClick}
       className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition-all ${
         selected
-          ? "bg-indigo-600 text-white border-indigo-600 font-semibold shadow-sm"
-          : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-700"
-      }`}>
+          ? "bg-amber-500 text-black border-amber-500 font-semibold shadow-sm shadow-amber-500/20"
+          : "bg-[#0f1a2e] text-slate-400 border-[#1e3a5f] hover:border-amber-500/40 hover:text-slate-200"
+      }`}
+    >
       <span>{icon}</span>
       <span>{label}</span>
       {sub && (
-        <span className={`text-xs ${selected ? "text-indigo-200" : "text-gray-400"}`}>{sub}</span>
+        <span className={`text-xs ${selected ? "text-black/60" : "text-slate-600"}`}>{sub}</span>
       )}
     </button>
   );
@@ -137,7 +140,7 @@ function Chip({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-gray-400 text-xs uppercase tracking-widest mb-2 font-medium">{children}</p>
+    <p className="text-slate-600 text-xs uppercase tracking-widest mb-2 font-medium">{children}</p>
   );
 }
 
@@ -161,7 +164,6 @@ export default function Home() {
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState("");
 
-  // Filters
   const [city,          setCity]          = useState("");
   const [days,          setDays]          = useState("2");
   const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
@@ -169,7 +171,6 @@ export default function Home() {
   const [budget,        setBudget]        = useState("");
   const [pace,          setPace]          = useState("");
 
-  // Phase 2 — user memory
   const [userId] = useState<string>(() => {
     if (typeof window === "undefined") return "anon";
     let id = localStorage.getItem("naviro_user_id");
@@ -180,9 +181,7 @@ export default function Home() {
     return id;
   });
   const [pastDestinations, setPastDestinations] = useState<string[]>([]);
-
-  // Landing UX
-  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [placeholderIdx,   setPlaceholderIdx]   = useState(0);
 
   const sessionId = useRef(generateSessionId());
   const cityRef   = useRef<HTMLInputElement>(null);
@@ -190,13 +189,11 @@ export default function Home() {
 
   useEffect(() => { cityRef.current?.focus(); }, []);
 
-  // Rotate placeholder every 2.2s
   useEffect(() => {
     const t = setInterval(() => setPlaceholderIdx((p) => (p + 1) % PLACEHOLDERS.length), 2200);
     return () => clearInterval(t);
   }, []);
 
-  // Load preferences on mount
   useEffect(() => {
     const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
     fetch(`${apiUrl}/api/preferences/${userId}`)
@@ -212,7 +209,9 @@ export default function Home() {
   }, [userId]);
 
   function toggleVibe(label: string) {
-    setSelectedVibes((prev) => prev.includes(label) ? prev.filter((v) => v !== label) : [...prev, label]);
+    setSelectedVibes((prev) =>
+      prev.includes(label) ? prev.filter((v) => v !== label) : [...prev, label]
+    );
   }
 
   function pickDestination(name: string) {
@@ -255,8 +254,6 @@ export default function Home() {
         setItinerary(data.itinerary);
         setLiveDays(data.itinerary.days);
         setActiveDay(0);
-
-        // Save preferences
         fetch(`${apiUrl}/api/preferences`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -299,29 +296,38 @@ export default function Home() {
     );
   }
 
-  // ── Landing ───────────────────────────────────────────────────────────────────
   const canSubmit  = city.trim().length > 0 && !loading;
   const isCityStep = formStep === "city";
 
+  // ── Landing ───────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="min-h-screen lg:flex" style={{ background: "#070d1b" }}>
 
-      {/* ── LEFT: Form panel ──────────────────────────────────────── */}
-      <div className="w-full lg:w-[42%] bg-white flex flex-col justify-center px-8 xl:px-14 py-12 min-h-screen lg:overflow-y-auto">
+      {/* ════════════════════════════════════════════════════════
+          LEFT — Form
+      ════════════════════════════════════════════════════════ */}
+      <div
+        className="w-full lg:w-[44%] flex flex-col justify-center px-8 xl:px-14 py-12 min-h-screen lg:overflow-y-auto"
+        style={{ background: "#070d1b" }}
+      >
         <div className="w-full max-w-md mx-auto space-y-7">
 
           {/* Logo */}
           <div className="space-y-1">
-            <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-              Navi<span className="text-indigo-500">ro</span>
+            <h1 className="text-4xl font-bold tracking-tight text-slate-100">
+              Navi<span className="text-amber-500">ro</span>
             </h1>
             {isCityStep ? (
               <>
-                <p className="text-gray-500 text-base">Pick your city first. We&apos;ll tune the trip next.</p>
-                <p className="text-gray-300 text-xs pt-0.5">✦ 2,400+ trips planned</p>
+                <p className="text-slate-500 text-base">
+                  Pick your city first. We&apos;ll tune the trip next.
+                </p>
+                <p className="text-slate-700 text-xs pt-0.5">✦ 2,400+ trips planned</p>
               </>
             ) : (
-              <p className="text-gray-500 text-base">Tell me who you are. I&apos;ll plan for you, not for everyone.</p>
+              <p className="text-slate-500 text-base">
+                Tell me who you are. I&apos;ll plan for you, not for everyone.
+              </p>
             )}
           </div>
 
@@ -335,48 +341,80 @@ export default function Home() {
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder={PLACEHOLDERS[placeholderIdx]}
-                className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-50 transition-all text-sm shadow-sm"
+                className="w-full rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 outline-none text-sm transition-all"
+                style={{
+                  background: "#0f1a2e",
+                  border: "1px solid #1e3a5f",
+                  boxShadow: "none",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "#f59e0b";
+                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(245,158,11,0.12)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "#1e3a5f";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
                 disabled={loading}
               />
             </div>
 
-            {/* ── City step: discovery helpers ─────────────────────── */}
+            {/* ── City step ──────────────────────────────────────── */}
             {isCityStep && (
               <>
-                {/* Seasonal picks */}
                 <div className="space-y-1.5">
                   <SectionLabel>🌤 {seasonal.label}</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {seasonal.cities.map((c) => (
-                      <button key={c} type="button" onClick={() => pickDestination(c)}
-                        className="px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 text-xs font-medium hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all">
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => pickDestination(c)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-slate-400 hover:text-amber-400"
+                        style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                      >
                         {c}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Popular destinations */}
                 <div className="space-y-1.5">
                   <SectionLabel>Popular right now</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {POPULAR_DESTINATIONS.map((d) => (
-                      <button key={d.name} type="button" onClick={() => pickDestination(d.name)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50 transition-all shadow-sm">
-                        <span>{d.icon}</span> {d.name}
+                      <button
+                        key={d.name}
+                        type="button"
+                        onClick={() => pickDestination(d.name)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all text-slate-300 hover:text-amber-400"
+                        style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                      >
+                        <span>{d.icon}</span>
+                        {d.name}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Past trips */}
                 {pastDestinations.length > 0 && (
                   <div className="space-y-1.5">
                     <SectionLabel>Your past trips</SectionLabel>
                     <div className="flex flex-wrap gap-2">
                       {pastDestinations.slice(0, 5).map((d) => (
-                        <button key={d} type="button" onClick={() => pickDestination(d)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-xs font-medium hover:border-indigo-300 hover:text-indigo-700 transition-all">
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => pickDestination(d)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-slate-500 hover:text-amber-400"
+                          style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.4)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                        >
                           🕐 {d}
                         </button>
                       ))}
@@ -386,21 +424,28 @@ export default function Home() {
               </>
             )}
 
-            {/* ── Filters step ─────────────────────────────────────── */}
+            {/* ── Filters step ──────────────────────────────────── */}
             {!isCityStep && (
               <>
                 <div className="space-y-1.5">
                   <SectionLabel>How long</SectionLabel>
-                  <div className="w-fit flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-3">
-                    <button type="button"
+                  <div
+                    className="w-fit flex items-center gap-1 rounded-xl px-3"
+                    style={{ background: "#0f1a2e", border: "1px solid #1e3a5f" }}
+                  >
+                    <button
+                      type="button"
                       onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
-                      className="text-gray-400 hover:text-indigo-600 w-7 h-7 flex items-center justify-center text-lg transition-colors">−</button>
-                    <span className="text-gray-900 text-sm font-semibold w-14 text-center">
+                      className="text-slate-500 hover:text-amber-400 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                    >−</button>
+                    <span className="text-slate-100 text-sm font-semibold w-14 text-center">
                       {days} {Number(days) === 1 ? "day" : "days"}
                     </span>
-                    <button type="button"
+                    <button
+                      type="button"
                       onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
-                      className="text-gray-400 hover:text-indigo-600 w-7 h-7 flex items-center justify-center text-lg transition-colors">+</button>
+                      className="text-slate-500 hover:text-amber-400 w-7 h-7 flex items-center justify-center text-lg transition-colors"
+                    >+</button>
                   </div>
                 </div>
 
@@ -408,9 +453,13 @@ export default function Home() {
                   <SectionLabel>What you love</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {VIBES.map((v) => (
-                      <Chip key={v.label} icon={v.icon} label={v.label}
+                      <Chip
+                        key={v.label}
+                        icon={v.icon}
+                        label={v.label}
                         selected={selectedVibes.includes(v.label)}
-                        onClick={() => toggleVibe(v.label)} />
+                        onClick={() => toggleVibe(v.label)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -419,9 +468,13 @@ export default function Home() {
                   <SectionLabel>Travelling as</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {TRAVEL_STYLES.map((s) => (
-                      <Chip key={s.label} icon={s.icon} label={s.label}
+                      <Chip
+                        key={s.label}
+                        icon={s.icon}
+                        label={s.label}
                         selected={travelStyle === s.label}
-                        onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))} />
+                        onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -430,9 +483,14 @@ export default function Home() {
                   <SectionLabel>Budget</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {BUDGETS.map((b) => (
-                      <Chip key={b.label} icon={b.icon} label={b.label} sub={b.sub}
+                      <Chip
+                        key={b.label}
+                        icon={b.icon}
+                        label={b.label}
+                        sub={b.sub}
                         selected={budget === b.label}
-                        onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))} />
+                        onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -441,9 +499,14 @@ export default function Home() {
                   <SectionLabel>Pace</SectionLabel>
                   <div className="flex flex-wrap gap-2">
                     {PACES.map((p) => (
-                      <Chip key={p.label} icon={p.icon} label={p.label} sub={p.sub}
+                      <Chip
+                        key={p.label}
+                        icon={p.icon}
+                        label={p.label}
+                        sub={p.sub}
                         selected={pace === p.label}
-                        onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))} />
+                        onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))}
+                      />
                     ))}
                   </div>
                 </div>
@@ -451,27 +514,46 @@ export default function Home() {
             )}
 
             {error && (
-              <p className="text-red-500 text-sm px-1 flex items-center gap-1.5">
-                <span>⚠️</span> {error}
-              </p>
+              <p className="text-red-400 text-sm px-1">⚠️ {error}</p>
             )}
 
             <div className="space-y-2 pt-1">
-              <button type="submit" disabled={!canSubmit}
-                className="w-full bg-indigo-600 text-white py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-indigo-700 transition-colors shadow-sm">
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="w-full py-3.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-40"
+                style={{
+                  background: canSubmit ? "#f59e0b" : "#f59e0b",
+                  color: "#000",
+                  boxShadow: canSubmit ? "0 4px 20px rgba(245,158,11,0.25)" : "none",
+                }}
+              >
                 {loading ? "Planning your trip…" : isCityStep ? "Continue →" : "Plan my trip →"}
               </button>
 
               {isCityStep && (
-                <button type="button" onClick={surpriseMe} disabled={loading}
-                  className="w-full border border-gray-200 text-gray-500 py-3 rounded-2xl font-medium text-sm hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+                <button
+                  type="button"
+                  onClick={surpriseMe}
+                  disabled={loading}
+                  className="w-full py-3 rounded-2xl font-medium text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                  style={{ border: "1px solid #1e3a5f" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#334155")}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                >
                   🎲 Surprise me — pick a destination
                 </button>
               )}
 
               {!isCityStep && (
-                <button type="button" onClick={() => setFormStep("city")}
-                  className="w-full border border-gray-200 text-gray-500 py-3 rounded-2xl font-medium text-sm hover:border-gray-300 hover:text-gray-700 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setFormStep("city")}
+                  className="w-full py-3 rounded-2xl font-medium text-sm text-slate-500 hover:text-slate-300 transition-colors"
+                  style={{ border: "1px solid #1e3a5f" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#334155")}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#1e3a5f")}
+                >
                   ← Edit city
                 </button>
               )}
@@ -480,90 +562,154 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ── RIGHT: Visual panel (desktop only) ───────────────────── */}
-      <div className="hidden lg:flex lg:w-[58%] sticky top-0 h-screen overflow-hidden flex-col">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-900 via-indigo-800 to-violet-900" />
-        {/* Dot grid overlay */}
-        <div className="absolute inset-0 opacity-[0.07]"
-          style={{ backgroundImage: "radial-gradient(circle at 1px 1px, white 1.5px, transparent 0)", backgroundSize: "28px 28px" }} />
-        {/* Glow blobs */}
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-indigo-500 rounded-full opacity-20 blur-3xl" />
-        <div className="absolute bottom-1/4 left-1/4 w-64 h-64 bg-violet-600 rounded-full opacity-20 blur-3xl" />
+      {/* ════════════════════════════════════════════════════════
+          RIGHT — Visual panel (desktop only)
+      ════════════════════════════════════════════════════════ */}
+      <div
+        className="hidden lg:flex lg:w-[56%] sticky top-0 h-screen overflow-hidden flex-col"
+        style={{ background: "#0a1020" }}
+      >
+        {/* Star-field dots */}
+        <div
+          className="absolute inset-0 opacity-30"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.35) 1px, transparent 0)",
+            backgroundSize: "36px 36px",
+          }}
+        />
+        {/* Amber glow top-right */}
+        <div
+          className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full opacity-[0.07]"
+          style={{
+            background: "radial-gradient(circle, #f59e0b 0%, transparent 70%)",
+            transform: "translate(20%, -20%)",
+          }}
+        />
+        {/* Subtle blue glow bottom-left */}
+        <div
+          className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full opacity-[0.06]"
+          style={{
+            background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)",
+            transform: "translate(-30%, 30%)",
+          }}
+        />
 
-        {/* Content */}
+        {/* ── Content ── */}
         <div className="relative z-10 flex flex-col justify-center h-full px-12 xl:px-16 py-12">
 
           {isCityStep ? (
-            /* ── City step: destination showcase ── */
-            <div className="space-y-8">
+            /* City step */
+            <div className="space-y-9">
               <div>
-                <p className="text-indigo-300 text-sm font-medium mb-3">✦ 2,400+ trips planned across India</p>
-                <h2 className="text-white text-5xl font-bold leading-tight tracking-tight">
+                <p className="text-amber-500/70 text-sm font-medium mb-3 tracking-wide">
+                  ✦ 2,400+ trips planned across India
+                </p>
+                <h2 className="text-slate-100 text-5xl font-bold leading-[1.1] tracking-tight">
                   Where will<br />you go next?
                 </h2>
-                <p className="text-indigo-200 mt-4 text-base leading-relaxed max-w-sm">
-                  Tell us your destination and we&apos;ll craft a personalized, day-by-day itinerary in seconds.
+                <p className="text-slate-500 mt-4 text-base leading-relaxed max-w-sm">
+                  Type a destination and we&apos;ll craft you a personalized,
+                  day-by-day itinerary in seconds.
                 </p>
               </div>
 
-              {/* Featured destination grid */}
+              {/* Destination grid */}
               <div className="grid grid-cols-2 gap-3">
                 {POPULAR_DESTINATIONS.slice(0, 4).map((d) => (
-                  <button key={d.name} type="button" onClick={() => pickDestination(d.name)}
-                    className="group flex items-center gap-3 p-3.5 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/20 hover:border-white/40 transition-all text-left">
+                  <button
+                    key={d.name}
+                    type="button"
+                    onClick={() => pickDestination(d.name)}
+                    className="group flex items-center gap-3 p-4 rounded-2xl text-left transition-all"
+                    style={{
+                      background: "rgba(15,26,46,0.7)",
+                      border: "1px solid rgba(30,58,95,0.8)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(245,158,11,0.35)";
+                      e.currentTarget.style.background = "rgba(245,158,11,0.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(30,58,95,0.8)";
+                      e.currentTarget.style.background = "rgba(15,26,46,0.7)";
+                    }}
+                  >
                     <span className="text-3xl">{d.icon}</span>
                     <div>
-                      <p className="text-white text-sm font-semibold group-hover:text-white">{d.name}</p>
-                      <p className="text-indigo-300 text-xs">{d.desc}</p>
+                      <p className="text-slate-200 text-sm font-semibold group-hover:text-amber-400 transition-colors">
+                        {d.name}
+                      </p>
+                      <p className="text-slate-600 text-xs">{d.desc}</p>
                     </div>
                   </button>
                 ))}
               </div>
 
-              {/* Seasonal picks */}
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
-                <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-3">🌤 {seasonal.label}</p>
+              {/* Seasonal card */}
+              <div
+                className="rounded-2xl p-4"
+                style={{ background: "rgba(15,26,46,0.5)", border: "1px solid rgba(30,58,95,0.6)" }}
+              >
+                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-3">
+                  🌤 {seasonal.label}
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {seasonal.cities.map((c) => (
-                    <button key={c} type="button" onClick={() => pickDestination(c)}
-                      className="px-3 py-1.5 rounded-xl bg-white/20 text-white text-xs font-medium hover:bg-white/30 transition-all border border-white/10">
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => pickDestination(c)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-amber-400 transition-colors"
+                      style={{ background: "rgba(30,58,95,0.4)", border: "1px solid rgba(30,58,95,0.6)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(245,158,11,0.3)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(30,58,95,0.6)")}
+                    >
                       {c}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Stats row */}
-              <div className="flex items-center gap-6 text-sm">
+              {/* Stats */}
+              <div className="flex items-center gap-8">
                 {[["100+", "Cities"], ["3", "Travel modes"], ["Instant", "Planning"]].map(([val, lbl]) => (
                   <div key={lbl}>
-                    <p className="text-white font-bold text-lg">{val}</p>
-                    <p className="text-indigo-300 text-xs">{lbl}</p>
+                    <p className="text-amber-400 font-bold text-xl">{val}</p>
+                    <p className="text-slate-600 text-xs mt-0.5">{lbl}</p>
                   </div>
                 ))}
               </div>
             </div>
 
           ) : (
-            /* ── Filters step: live trip preview ── */
+            /* Filters step — live preview */
             <div className="space-y-7">
               <div>
-                <p className="text-indigo-300 text-sm font-medium mb-2">✦ Trip preview</p>
-                <h2 className="text-white text-4xl font-bold leading-tight">{city}</h2>
-                <p className="text-indigo-200 text-base mt-1">Your personalized trip is taking shape.</p>
+                <p className="text-amber-500/70 text-sm font-medium mb-2 tracking-wide">
+                  ✦ Trip preview
+                </p>
+                <h2 className="text-slate-100 text-4xl font-bold tracking-tight">{city}</h2>
+                <p className="text-slate-500 text-base mt-1">Your personalized trip is taking shape.</p>
               </div>
 
-              {/* Live preview card */}
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/20 space-y-5">
-
-                {/* Duration */}
+              {/* Preview card */}
+              <div
+                className="rounded-2xl p-5 space-y-5"
+                style={{ background: "rgba(15,26,46,0.7)", border: "1px solid rgba(30,58,95,0.8)" }}
+              >
+                {/* Days */}
                 <div>
-                  <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-2.5">Duration</p>
+                  <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2.5">
+                    Duration
+                  </p>
                   <div className="flex gap-1.5 flex-wrap">
                     {Array.from({ length: Number(days) }).map((_, i) => (
-                      <div key={i}
-                        className="w-9 h-9 rounded-xl bg-white/25 border border-white/30 flex items-center justify-center text-white text-xs font-bold">
+                      <div
+                        key={i}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-300 text-xs font-bold"
+                        style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)" }}
+                      >
                         {i + 1}
                       </div>
                     ))}
@@ -573,13 +719,21 @@ export default function Home() {
                 {/* Vibes */}
                 {selectedVibes.length > 0 && (
                   <div>
-                    <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-2.5">Your vibes</p>
-                    <div className="flex flex-wrap gap-2">
+                    <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-2.5">
+                      Your vibes
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
                       {selectedVibes.map((v) => {
                         const vibe = VIBES.find((x) => x.label === v);
                         return (
-                          <span key={v}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-indigo-500/40 text-white text-xs rounded-lg border border-indigo-400/30">
+                          <span
+                            key={v}
+                            className="flex items-center gap-1 px-2.5 py-1 text-amber-300 text-xs rounded-lg"
+                            style={{
+                              background: "rgba(245,158,11,0.1)",
+                              border: "1px solid rgba(245,158,11,0.2)",
+                            }}
+                          >
                             {vibe?.icon} {v}
                           </span>
                         );
@@ -590,47 +744,48 @@ export default function Home() {
 
                 {/* Style / Budget / Pace */}
                 {(travelStyle || budget || pace) && (
-                  <div className="flex flex-wrap gap-2">
-                    {travelStyle && (
-                      <span className="px-2.5 py-1 bg-white/20 text-white text-xs rounded-lg border border-white/20">
-                        {travelStyle}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[travelStyle, budget, pace].filter(Boolean).map((tag) => (
+                      <span
+                        key={tag}
+                        className="px-2.5 py-1 text-slate-400 text-xs rounded-lg"
+                        style={{ background: "rgba(30,58,95,0.5)", border: "1px solid rgba(30,58,95,0.8)" }}
+                      >
+                        {tag}
                       </span>
-                    )}
-                    {budget && (
-                      <span className="px-2.5 py-1 bg-white/20 text-white text-xs rounded-lg border border-white/20">
-                        {budget}
-                      </span>
-                    )}
-                    {pace && (
-                      <span className="px-2.5 py-1 bg-white/20 text-white text-xs rounded-lg border border-white/20">
-                        {pace}
-                      </span>
-                    )}
+                    ))}
                   </div>
                 )}
 
-                {/* Prompt preview */}
-                <div className="border-t border-white/20 pt-4">
-                  <p className="text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-1.5">AI will plan for:</p>
-                  <p className="text-white/80 text-sm italic leading-relaxed">
+                {/* Prompt */}
+                <div style={{ borderTop: "1px solid rgba(30,58,95,0.6)", paddingTop: "1rem" }}>
+                  <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                    AI will plan for:
+                  </p>
+                  <p className="text-slate-400 text-sm italic leading-relaxed">
                     &ldquo;{buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace)}&rdquo;
                   </p>
                 </div>
               </div>
 
               {/* What you'll get */}
-              <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-                <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-3">What you&apos;ll get</p>
-                <div className="space-y-2">
+              <div
+                className="rounded-2xl p-4"
+                style={{ background: "rgba(15,26,46,0.4)", border: "1px solid rgba(30,58,95,0.5)" }}
+              >
+                <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider mb-3">
+                  What you&apos;ll get
+                </p>
+                <div className="space-y-2.5">
                   {[
                     ["🗺️", "Day-by-day itinerary with timings"],
-                    ["📍", "Real places with map pins"],
+                    ["📍", "Real places with interactive map pins"],
                     ["💡", "Local tips & how to get there"],
                     ["💰", "Cost estimates for every stop"],
                   ].map(([icon, text]) => (
                     <div key={text} className="flex items-center gap-2.5">
                       <span className="text-base">{icon}</span>
-                      <span className="text-indigo-100 text-xs">{text}</span>
+                      <span className="text-slate-500 text-xs">{text}</span>
                     </div>
                   ))}
                 </div>

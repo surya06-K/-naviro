@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  /* Minimal Glass White palette */
-  --background: #ffffff;
-  --foreground: #111827;
-  --surface: #f9fafb;
-  --surface-2: #f3f4f6;
-  --border: #e5e7eb;
-  --muted: #6b7280;
-  --accent: #4f46e5;
+  /* Deep navy night mode */
+  --background: #070d1b;
+  --foreground: #e2e8f0;
+  --surface: #0f1a2e;
+  --surface-2: #162033;
+  --border: #1e3a5f;
+  --muted: #64748b;
+  --accent: #f59e0b;
 }
 
 @theme inline {
