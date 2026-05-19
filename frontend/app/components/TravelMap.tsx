@@ -45,15 +45,15 @@ const PIN_COLORS = ["#f97316", "#facc15", "#a855f7"];
 const TIME_LABELS = ["Morning", "Afternoon", "Evening"];
 const TIME_ICONS = ["🌅", "☀️", "🌙"];
 
-function getTimeSlotIndex(timeOfDay: string, fallbackIndex: number) {
-  const n = timeOfDay.toLowerCase();
+function getTimeSlotIndex(timeOfDay: string | undefined, fallbackIndex: number) {
+  const n = (timeOfDay ?? "").toLowerCase();
   if (n.includes("morning")) return 0;
   if (n.includes("afternoon")) return 1;
   if (n.includes("evening") || n.includes("night")) return 2;
   return fallbackIndex % PIN_COLORS.length;
 }
 
-function getDisplayNumber(timeOfDay: string, fallbackIndex: number) {
+function getDisplayNumber(timeOfDay: string | undefined, fallbackIndex: number) {
   return getTimeSlotIndex(timeOfDay, fallbackIndex) + 1;
 }
 
@@ -185,8 +185,9 @@ export default function TravelMap({
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       if (polylineRef.current) { polylineRef.current.remove(); polylineRef.current = null; }
-const day = days[activeDay];
-if (!day || !Array.isArray(day.slots)) return;  // ← the fix
+
+      const day = days[activeDay];
+      if (!day || !Array.isArray(day.slots)) return;
 
       const validSlots = day.slots.filter(
         (s) => s.coordinates?.lat && s.coordinates?.lng &&
@@ -264,10 +265,11 @@ if (!day || !Array.isArray(day.slots)) return;  // ← the fix
     setShowLive(false);
   }
 
-  const day          = days[activeDay];
-  const slot         = day && selectedSlot !== null ? day.slots[selectedSlot] : null;
+  const day          = Array.isArray(days) ? days[activeDay] : undefined;
+  const safeSlots    = Array.isArray(day?.slots) ? day!.slots : [];
+  const slot         = day && selectedSlot !== null ? (safeSlots[selectedSlot] ?? null) : null;
   const slotTimeIdx  = slot && selectedSlot !== null
-    ? getTimeSlotIndex(slot.time_of_day, selectedSlot) : null;
+    ? getTimeSlotIndex(slot.time_of_day ?? "morning", selectedSlot) : null;
 
   // ── Live Mode overlay ───────────────────────────────────────────────────────
   if (showLive) {
@@ -337,8 +339,8 @@ if (!day || !Array.isArray(day.slots)) return;  // ← the fix
             {/* Calendar export */}
             <div className="flex justify-end mt-2">
               <button
-                onClick={() => day?.slots.forEach((s) =>
-                  window.open(buildCalendarUrl(s, day.day_number, destination), "_blank")
+                onClick={() => safeSlots.forEach((s) =>
+                  window.open(buildCalendarUrl(s, day?.day_number ?? 1, destination), "_blank")
                 )}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-400 text-xs font-medium hover:border-zinc-500 hover:text-white transition-colors"
               >
@@ -434,7 +436,11 @@ if (!day || !Array.isArray(day.slots)) return;  // ← the fix
 
       {/* ── Left legend ──────────────────────────────────────── */}
       <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
+<<<<<<< HEAD
       {(day?.slots ?? []).map((s, i) => {
+=======
+        {safeSlots.map((s, i) => {
+>>>>>>> ae33dc4 (fix: add error boundary + defensive guards to prevent page crash)
           const tsi   = getTimeSlotIndex(s.time_of_day, i);
           const num   = getDisplayNumber(s.time_of_day, i);
           const label = TIME_LABELS[tsi] ?? s.time_of_day;

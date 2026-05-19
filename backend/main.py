@@ -394,7 +394,11 @@ Hard rules:
             if clean.startswith("json"):
                 clean = clean[4:]
             clean = clean.strip()
-        return json.loads(clean)
+        result = json.loads(clean)
+        # Unwrap if LLM returns {"itinerary": {...}} instead of the plain dict
+        if isinstance(result, dict) and "itinerary" in result and "days" not in result:
+            result = result["itinerary"]
+        return result
     except Exception as e:
         logger.warning("Itinerary repair failed: %s", e)
         return None
@@ -517,6 +521,9 @@ async def plan(request: PlanRequest):
                     clean = clean[4:]
                 clean = clean.strip()
             itinerary = json.loads(clean)
+            # Unwrap if LLM returns {"itinerary": {...}} instead of the plain dict
+            if isinstance(itinerary, dict) and "itinerary" in itinerary and "days" not in itinerary:
+                itinerary = itinerary["itinerary"]
         except json.JSONDecodeError:
             pass
 
