@@ -80,12 +80,19 @@ TIME OF DAY LOGIC (strict):
 DAY ARC: Each day should feel like a complete experience with a theme — not three unrelated places. The day_title should reflect this theme.
 
 ━━━ STEP 3: PICK THE RIGHT PLACES ━━━
-HARD RULE: If a place would appear on the first page of Google, TripAdvisor, or MakeMyTrip — skip it. No Charminar, no Gateway of India, no Marina Beach walk unless explicitly asked.
-
-Instead, think: where does someone who has lived here for 5 years actually go?
+FOR WELL-KNOWN CITIES: Skip the obvious tourist traps. Think like a 5-year local resident.
 - Breakfast? Not the hotel buffet — the specific tiffin shop on the corner.
 - Evening? Not the tourist strip — the local market that winds up at 8pm.
 - History? Not the UNESCO site — the forgotten step-well three streets behind it.
+
+FOR SMALL TOWNS & TIER-3 CITIES (critical rule):
+If you don't have deep local knowledge of a place, DO NOT invent vague names like "Local Market", "Town Square", "Old Bus Stand Area". That is useless and wrong.
+Instead:
+- Use the actual proper name of the most well-known temple, lake, fort, or bazaar in that town
+- Name the specific street, colony, or neighbourhood — e.g. "Kanaka Durga Temple, Narsipatnam" not "the local temple"
+- If you only know 1–2 real places, build the itinerary around those + nearby real landmarks
+- A known landmark with a proper name is ALWAYS better than an invented vague place
+- The place_name MUST be specific enough that someone can find it by typing it into Google Maps
 
 Match the vibe:
 - Street food → name the exact stall, cart, or hole-in-the-wall. Name the dish. Name what it costs.
@@ -166,7 +173,7 @@ GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 GOOGLE_GEOCODE_URL  = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACES_URL   = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
-_NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "2") or "2")
+_NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "1") or "1")
 _nominatim_semaphore = asyncio.Semaphore(_NOMINATIM_CONCURRENCY)
 _geocode_cache: dict[str, dict] = {}
 _nominatim_headers = {
@@ -198,13 +205,13 @@ async def _nominatim_geocode(client: httpx.AsyncClient, query: str) -> dict:
 
     # Be polite to Nominatim: limit concurrency and add a tiny delay.
     async with _nominatim_semaphore:
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(1.1)  # Nominatim policy: max 1 req/sec
         try:
             resp = await client.get(
                 NOMINATIM_SEARCH_URL,
-                params={"q": query, "format": "json", "limit": 1, "addressdetails": 0},
+                params={"q": query, "format": "json", "limit": 1, "addressdetails": 0, "countrycodes": "in"},
                 headers=_nominatim_headers,
-                timeout=8.0,
+                timeout=10.0,
             )
             data = resp.json()
             if isinstance(data, list) and data:
