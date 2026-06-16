@@ -542,13 +542,13 @@ function PlanTripView({
         <div className="text-center space-y-4">
           <h3 className="text-xl font-medium" style={{ color: "#fff" }}>How many days?</h3>
           <div className="flex items-center justify-center gap-5">
-            <button onClick={() => setDays((d) => String(Math.max(1, Number(d) - 1)))}
+            <button onClick={() => setDays(String(Math.max(1, Number(days) - 1)))}
               className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
               style={{ background: "#111", border: "1px solid #1a1a1a", color: "#555" }}>−</button>
             <span className="text-3xl font-medium" style={{ color: "#fff" }}>
               {days} <span className="text-sm" style={{ color: "#444" }}>{Number(days) === 1 ? "day" : "days"}</span>
             </span>
-            <button onClick={() => setDays((d) => String(Math.min(7, Number(d) + 1)))}
+            <button onClick={() => setDays(String(Math.min(7, Number(days) + 1)))}
               className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
               style={{ background: "#111", border: "1px solid #1a1a1a", color: "#555" }}>+</button>
           </div>
