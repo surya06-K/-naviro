@@ -577,7 +577,7 @@ function PlanTripView({
           <div className="flex flex-wrap justify-center gap-2">
             {TRAVEL_STYLES.map((s) => (
               <button key={s.label}
-                onClick={() => setTravelStyle((prev) => (prev === s.label ? "" : s.label))}
+                onClick={() => setTravelStyle(travelStyle === s.label ? "" : s.label)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all"
                 style={travelStyle === s.label
                   ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
@@ -595,7 +595,7 @@ function PlanTripView({
           <div className="flex justify-center gap-3">
             {BUDGETS.map((b) => (
               <button key={b.label}
-                onClick={() => setBudget((prev) => (prev === b.label ? "" : b.label))}
+                onClick={() => setBudget(budget === b.label ? "" : b.label)}
                 className="flex flex-col items-center gap-1 px-5 py-3 rounded-xl text-sm transition-all"
                 style={budget === b.label
                   ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
@@ -615,7 +615,7 @@ function PlanTripView({
           <div className="flex justify-center gap-3">
             {PACES.map((p) => (
               <button key={p.label}
-                onClick={() => setPace((prev) => (prev === p.label ? "" : p.label))}
+                onClick={() => setPace(pace === p.label ? "" : p.label)}
                 className="flex flex-col items-center gap-1 px-5 py-3 rounded-xl text-sm transition-all"
                 style={pace === p.label
                   ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
