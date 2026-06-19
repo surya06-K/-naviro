@@ -81,6 +81,33 @@ const PLACEHOLDERS = [
   "Any city in India…",
 ];
 
+const SLIDES = [
+  {
+    emoji: "🗺️",
+    title: "Plan your trip",
+    desc: ["Pick a city. Choose your vibe.", "Get a full itinerary in seconds."],
+    cta: "Start planning",
+    mode: "plan" as const,
+    glow: "rgba(255,255,255,0.03)",
+  },
+  {
+    emoji: "🤖",
+    title: "AI travel agent",
+    desc: ["Tell Naviro what you want.", "It plans the entire trip for you."],
+    cta: "Chat with agent",
+    mode: "agent" as const,
+    glow: "rgba(255,255,255,0.03)",
+  },
+  {
+    emoji: "📍",
+    title: "I'm travelling now",
+    desc: ["Already on a trip? Get live tips,", "replan your day, find nearby food."],
+    cta: "Enter live mode",
+    mode: "live" as const,
+    glow: "rgba(255,255,255,0.03)",
+  },
+];
+
 // ─── Dynamic imports ──────────────────────────────────────────────────────────
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
@@ -110,13 +137,9 @@ const TOTAL_SLIDES = 3;
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Home() {
-  // Slide state
   const [slide, setSlide] = useState(0);
-
-  // Which mode is open (null = browsing slides, "plan" | "agent" | "live")
   const [mode, setMode] = useState<"plan" | "agent" | "live" | null>(null);
 
-  // Trip planning state
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
   const [livedays, setLiveDays] = useState<Day[]>([]);
   const [activeDay, setActiveDay] = useState(0);
@@ -143,7 +166,6 @@ export default function Home() {
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const sessionId = useRef(generateSessionId());
 
-  // Touch tracking for swipe
   const touchStartX = useRef(0);
   const touchDeltaX = useRef(0);
   const isDragging = useRef(false);
@@ -250,7 +272,7 @@ export default function Home() {
     );
   }
 
-  // ── Mode views (opened after tapping a slide's CTA) ─────────────────────────
+  // ── Mode views ─────────────────────────────────────────────────────────────
   if (mode === "plan") {
     return <PlanTripView
       city={city} setCity={setCity}
@@ -307,15 +329,27 @@ export default function Home() {
         }
       }}
     >
-      {/* ── Top bar — centered logo ────────────────────────────────── */}
+      {/* Inline keyframes */}
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
+      {/* ── Top bar ────────────────────────────────────────────── */}
       <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center h-14"
-        style={{ background: "rgba(10,10,10,0.8)", backdropFilter: "blur(16px)" }}>
-        <span className="text-sm font-medium" style={{ color: "#333", letterSpacing: "1px" }}>
+        style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(20px)" }}>
+        <span className="text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
           naviro
         </span>
       </div>
 
-      {/* ── Slide track ──────────────────────────────────────────── */}
+      {/* ── Slide track ──────────────────────────────────────── */}
       <div
         ref={trackRef}
         className="flex h-full"
@@ -324,121 +358,58 @@ export default function Home() {
           transition: "transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
         }}
       >
-        {/* ═══ SLIDE 1: Plan Your Trip ═══ */}
-        <section className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8">
-          <div className="max-w-sm w-full text-center">
-            <p className="text-6xl mb-6">🗺️</p>
-            <h2
-              className="text-3xl font-medium mb-3"
-              style={{ color: "#fff", letterSpacing: "-1px" }}
-            >
-              Plan your trip
-            </h2>
-            <p
-              className="text-sm leading-relaxed mb-10"
-              style={{ color: "#444" }}
-            >
-              Pick a city. Choose your vibe.
-              <br />
-              Get a full itinerary in seconds.
-            </p>
-            <button
-              onClick={() => setMode("plan")}
-              className="px-10 py-3.5 rounded-full text-sm font-medium transition-all"
-              style={{ background: "#fff", color: "#000" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#e0e0e0";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#fff";
-              }}
-            >
-              Start planning
-            </button>
-          </div>
-        </section>
+        {SLIDES.map((s, i) => (
+          <section key={i} className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8 relative">
+            {/* Subtle radial glow behind emoji */}
+            <div className="absolute" style={{
+              width: 240, height: 240,
+              borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(255,255,255,0.02) 0%, transparent 70%)",
+              top: "50%", left: "50%",
+              transform: "translate(-50%, -65%)",
+              pointerEvents: "none",
+            }} />
 
-        {/* ═══ SLIDE 2: AI Agent ═══ */}
-        <section className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8">
-          <div className="max-w-sm w-full text-center">
-            <p className="text-6xl mb-6">🤖</p>
-            <h2
-              className="text-3xl font-medium mb-3"
-              style={{ color: "#fff", letterSpacing: "-1px" }}
-            >
-              AI travel agent
-            </h2>
-            <p
-              className="text-sm leading-relaxed mb-10"
-              style={{ color: "#444" }}
-            >
-              Tell Naviro what you want.
-              <br />
-              It plans the entire trip for you.
-            </p>
-            <button
-              onClick={() => setMode("agent")}
-              className="px-10 py-3.5 rounded-full text-sm font-medium transition-all"
-              style={{ background: "#fff", color: "#000" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#e0e0e0";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#fff";
-              }}
-            >
-              Chat with agent
-            </button>
-          </div>
-        </section>
-
-        {/* ═══ SLIDE 3: Live Mode ═══ */}
-        <section className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8">
-          <div className="max-w-sm w-full text-center">
-            <p className="text-6xl mb-6">📍</p>
-            <h2
-              className="text-3xl font-medium mb-3"
-              style={{ color: "#fff", letterSpacing: "-1px" }}
-            >
-              I&apos;m travelling now
-            </h2>
-            <p
-              className="text-sm leading-relaxed mb-10"
-              style={{ color: "#444" }}
-            >
-              Already on a trip? Get live tips,
-              <br />
-              replan your day, find nearby food.
-            </p>
-            <button
-              onClick={() => setMode("live")}
-              className="px-10 py-3.5 rounded-full text-sm font-medium transition-all"
-              style={{ background: "#fff", color: "#000" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#e0e0e0";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#fff";
-              }}
-            >
-              Enter live mode
-            </button>
-          </div>
-        </section>
+            <div className="max-w-sm w-full text-center relative z-10">
+              <p className="text-7xl mb-8" style={{ animation: "float 4s ease-in-out infinite" }}>
+                {s.emoji}
+              </p>
+              <h2 className="text-3xl font-semibold mb-3" style={{ color: "#fff", letterSpacing: "-0.5px" }}>
+                {s.title}
+              </h2>
+              <p className="text-sm leading-relaxed mb-12" style={{ color: "#3a3a3a" }}>
+                {s.desc[0]}<br />{s.desc[1]}
+              </p>
+              <button
+                onClick={() => setMode(s.mode)}
+                className="px-10 py-3.5 rounded-full text-sm font-medium transition-all duration-200"
+                style={{ background: "#fff", color: "#000" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "scale(1.03)";
+                  e.currentTarget.style.boxShadow = "0 0 20px rgba(255,255,255,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                {s.cta}
+              </button>
+            </div>
+          </section>
+        ))}
       </div>
 
-      {/* ── Bottom nav: arrows + pill dots ────────────────────────────── */}
-      <div
-        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-5"
-      >
+      {/* ── Bottom nav ────────────────────────────────────────── */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4">
         <button
           onClick={() => setSlide(s => Math.max(s - 1, 0))}
-          className="w-8 h-8 flex items-center justify-center text-lg transition-all"
-          style={{ color: slide === 0 ? "#1a1a1a" : "#666" }}
+          className="w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200"
+          style={{ color: slide === 0 ? "#111" : "#555", background: slide === 0 ? "transparent" : "rgba(255,255,255,0.03)" }}
         >
-          ←
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-full" style={{ background: "rgba(255,255,255,0.03)" }}>
           {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
             <button
               key={i}
@@ -448,17 +419,17 @@ export default function Home() {
                 width: i === slide ? 20 : 6,
                 height: 4,
                 borderRadius: 2,
-                background: i === slide ? "#fff" : "#222",
+                background: i === slide ? "#fff" : "#1a1a1a",
               }}
             />
           ))}
         </div>
         <button
           onClick={() => setSlide(s => Math.min(s + 1, TOTAL_SLIDES - 1))}
-          className="w-8 h-8 flex items-center justify-center text-lg transition-all"
-          style={{ color: slide === TOTAL_SLIDES - 1 ? "#1a1a1a" : "#666" }}
+          className="w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200"
+          style={{ color: slide === TOTAL_SLIDES - 1 ? "#111" : "#555", background: slide === TOTAL_SLIDES - 1 ? "transparent" : "rgba(255,255,255,0.03)" }}
         >
-          →
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
       </div>
     </div>
@@ -489,25 +460,34 @@ function PlanTripView({
 
   return (
     <div className="min-h-screen overflow-y-auto" style={{ background: "#0a0a0a" }}>
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-section { animation: fadeUp 0.5s ease-out both; }
+      `}</style>
+
       {/* Top bar */}
       <div className="sticky top-0 z-50 flex items-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(16px)" }}>
-        <button onClick={onBack} className="text-sm transition-all"
-          style={{ color: "#555" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "#999"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "#555"; }}>
-          ← Back
+        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm transition-all"
+          style={{ color: "#444" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#888"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#444"; }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Back
         </button>
-        <span className="flex-1 text-center text-sm font-medium" style={{ color: "#555" }}>
+        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
           naviro
         </span>
-        <div style={{ width: 50 }} />
+        <div style={{ width: 60 }} />
       </div>
 
-      <div className="max-w-md mx-auto px-6 py-8 space-y-10">
+      <div className="max-w-md mx-auto px-6 pt-8 pb-12">
         {/* Where to */}
-        <div className="text-center space-y-4">
-          <h2 className="text-3xl font-medium" style={{ color: "#fff", letterSpacing: "-1px" }}>
+        <div className="text-center space-y-5 mb-14 fade-section" style={{ animationDelay: "0.05s" }}>
+          <h2 className="text-3xl font-semibold" style={{ color: "#fff", letterSpacing: "-0.5px" }}>
             Where to?
           </h2>
           <input
@@ -515,23 +495,30 @@ function PlanTripView({
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder={PLACEHOLDERS[placeholderIdx]}
-            className="w-full bg-transparent text-center text-xl font-medium outline-none pb-3"
-            style={{ color: "#fff", borderBottom: "1px solid #222", caretColor: "#fff" }}
-            onFocus={(e) => { e.currentTarget.style.borderBottomColor = "#555"; }}
-            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "#222"; }}
+            className="w-full bg-transparent text-center text-xl font-medium outline-none pb-3 transition-colors duration-200"
+            style={{ color: "#fff", borderBottom: "1px solid #1a1a1a", caretColor: "#fff" }}
+            onFocus={(e) => { e.currentTarget.style.borderBottomColor = "#444"; }}
+            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "#1a1a1a"; }}
           />
           <div className="grid grid-cols-2 gap-2 pt-2">
             {POPULAR_DESTINATIONS.map((d) => (
               <button key={d.name}
                 onClick={() => setCity(d.name)}
-                className="flex items-center gap-3 p-3 rounded-xl text-left transition-all"
-                style={{ background: "#111", border: "1px solid #1a1a1a" }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#333"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1a1a1a"; }}>
+                className="flex items-center gap-3 p-3 rounded-2xl text-left transition-all duration-200"
+                style={{
+                  background: city === d.name ? "rgba(255,255,255,0.08)" : "#0f0f0f",
+                  border: city === d.name ? "1px solid rgba(255,255,255,0.12)" : "1px solid #151515",
+                }}
+                onMouseEnter={(e) => {
+                  if (city !== d.name) e.currentTarget.style.borderColor = "#252525";
+                }}
+                onMouseLeave={(e) => {
+                  if (city !== d.name) e.currentTarget.style.borderColor = "#151515";
+                }}>
                 <span className="text-lg">{d.icon}</span>
                 <div>
-                  <p className="text-sm font-medium" style={{ color: "#fff" }}>{d.name}</p>
-                  <p className="text-xs" style={{ color: "#444" }}>{d.desc}</p>
+                  <p className="text-sm font-medium" style={{ color: "#ddd" }}>{d.name}</p>
+                  <p className="text-xs" style={{ color: "#3a3a3a" }}>{d.desc}</p>
                 </div>
               </button>
             ))}
@@ -539,32 +526,47 @@ function PlanTripView({
         </div>
 
         {/* Duration */}
-        <div className="text-center space-y-4">
-          <h3 className="text-xl font-medium" style={{ color: "#fff" }}>How many days?</h3>
-          <div className="flex items-center justify-center gap-5">
+        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.1s" }}>
+          <h3 className="text-lg font-medium" style={{ color: "#888" }}>How many days?</h3>
+          <div className="flex items-center justify-center gap-6">
             <button onClick={() => setDays(String(Math.max(1, Number(days) - 1)))}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
-              style={{ background: "#111", border: "1px solid #1a1a1a", color: "#555" }}>−</button>
-            <span className="text-3xl font-medium" style={{ color: "#fff" }}>
-              {days} <span className="text-sm" style={{ color: "#444" }}>{Number(days) === 1 ? "day" : "days"}</span>
-            </span>
+              className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
+              style={{ background: "#0f0f0f", border: "1px solid #1a1a1a", color: "#555" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#333"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1a1a1a"; }}>
+              −
+            </button>
+            <div className="min-w-[80px]">
+              <span className="text-4xl font-semibold tabular-nums" style={{ color: "#fff" }}>{days}</span>
+              <span className="text-sm ml-1.5" style={{ color: "#3a3a3a" }}>{Number(days) === 1 ? "day" : "days"}</span>
+            </div>
             <button onClick={() => setDays(String(Math.min(7, Number(days) + 1)))}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
-              style={{ background: "#111", border: "1px solid #1a1a1a", color: "#555" }}>+</button>
+              className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
+              style={{ background: "#0f0f0f", border: "1px solid #1a1a1a", color: "#555" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#333"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1a1a1a"; }}>
+              +
+            </button>
           </div>
         </div>
 
         {/* Vibes */}
-        <div className="text-center space-y-3">
-          <h3 className="text-xl font-medium" style={{ color: "#fff" }}>What&apos;s your vibe?</h3>
+        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.15s" }}>
+          <h3 className="text-lg font-medium" style={{ color: "#888" }}>What&apos;s your vibe?</h3>
           <div className="flex flex-wrap justify-center gap-2">
             {VIBES.map((v) => (
               <button key={v.label} onClick={() => toggleVibe(v.label)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
                 style={selectedVibes.includes(v.label)
                   ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "transparent", color: "#666", border: "1px solid #222" }
-                }>
+                  : { background: "transparent", color: "#555", border: "1px solid #1a1a1a" }
+                }
+                onMouseEnter={(e) => {
+                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "#333";
+                }}
+                onMouseLeave={(e) => {
+                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "#1a1a1a";
+                }}>
                 <span>{v.icon}</span><span>{v.label}</span>
               </button>
             ))}
@@ -572,17 +574,23 @@ function PlanTripView({
         </div>
 
         {/* Travel style */}
-        <div className="text-center space-y-3">
-          <h3 className="text-xl font-medium" style={{ color: "#fff" }}>Travelling as</h3>
+        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.2s" }}>
+          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Travelling as</h3>
           <div className="flex flex-wrap justify-center gap-2">
             {TRAVEL_STYLES.map((s) => (
               <button key={s.label}
                 onClick={() => setTravelStyle(travelStyle === s.label ? "" : s.label)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
                 style={travelStyle === s.label
                   ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "transparent", color: "#666", border: "1px solid #222" }
-                }>
+                  : { background: "transparent", color: "#555", border: "1px solid #1a1a1a" }
+                }
+                onMouseEnter={(e) => {
+                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "#333";
+                }}
+                onMouseLeave={(e) => {
+                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "#1a1a1a";
+                }}>
                 <span>{s.icon}</span><span>{s.label}</span>
               </button>
             ))}
@@ -590,52 +598,74 @@ function PlanTripView({
         </div>
 
         {/* Budget */}
-        <div className="text-center space-y-3">
-          <h3 className="text-xl font-medium" style={{ color: "#fff" }}>Budget</h3>
+        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.25s" }}>
+          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Budget</h3>
           <div className="flex justify-center gap-3">
             {BUDGETS.map((b) => (
               <button key={b.label}
                 onClick={() => setBudget(budget === b.label ? "" : b.label)}
-                className="flex flex-col items-center gap-1 px-5 py-3 rounded-xl text-sm transition-all"
+                className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
                 style={budget === b.label
-                  ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "#111", color: "#666", border: "1px solid #1a1a1a" }
-                }>
+                  ? { background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", fontWeight: 500 }
+                  : { background: "#0f0f0f", color: "#555", border: "1px solid #151515" }
+                }
+                onMouseEnter={(e) => {
+                  if (budget !== b.label) e.currentTarget.style.borderColor = "#252525";
+                }}
+                onMouseLeave={(e) => {
+                  if (budget !== b.label) e.currentTarget.style.borderColor = "#151515";
+                }}>
                 <span className="text-lg">{b.icon}</span>
                 <span>{b.label}</span>
-                <span className="text-xs" style={{ color: budget === b.label ? "rgba(0,0,0,0.5)" : "#333" }}>{b.sub}</span>
+                <span className="text-xs" style={{ color: budget === b.label ? "#666" : "#2a2a2a" }}>{b.sub}</span>
               </button>
             ))}
           </div>
         </div>
 
         {/* Pace */}
-        <div className="text-center space-y-3">
-          <h3 className="text-xl font-medium" style={{ color: "#fff" }}>Pace</h3>
+        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.3s" }}>
+          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Pace</h3>
           <div className="flex justify-center gap-3">
             {PACES.map((p) => (
               <button key={p.label}
                 onClick={() => setPace(pace === p.label ? "" : p.label)}
-                className="flex flex-col items-center gap-1 px-5 py-3 rounded-xl text-sm transition-all"
+                className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
                 style={pace === p.label
-                  ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "#111", color: "#666", border: "1px solid #1a1a1a" }
-                }>
+                  ? { background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", fontWeight: 500 }
+                  : { background: "#0f0f0f", color: "#555", border: "1px solid #151515" }
+                }
+                onMouseEnter={(e) => {
+                  if (pace !== p.label) e.currentTarget.style.borderColor = "#252525";
+                }}
+                onMouseLeave={(e) => {
+                  if (pace !== p.label) e.currentTarget.style.borderColor = "#151515";
+                }}>
                 <span className="text-lg">{p.icon}</span>
                 <span>{p.label}</span>
-                <span className="text-xs" style={{ color: pace === p.label ? "rgba(0,0,0,0.5)" : "#333" }}>{p.sub}</span>
+                <span className="text-xs" style={{ color: pace === p.label ? "#666" : "#2a2a2a" }}>{p.sub}</span>
               </button>
             ))}
           </div>
         </div>
 
         {/* Error & Submit */}
-        {error && <p className="text-sm text-center" style={{ color: "#e55" }}>{error}</p>}
+        {error && <p className="text-sm text-center mb-4" style={{ color: "#e55" }}>{error}</p>}
 
-        <div className="space-y-3 pb-8">
+        <div className="pb-10 fade-section" style={{ animationDelay: "0.35s" }}>
           <button onClick={onSubmit} disabled={!city.trim() || loading}
-            className="w-full py-4 rounded-xl text-sm font-medium transition-all disabled:opacity-30"
-            style={{ background: "#fff", color: "#000" }}>
+            className="w-full py-4 rounded-full text-sm font-medium transition-all duration-200 disabled:opacity-20"
+            style={{ background: "#fff", color: "#000" }}
+            onMouseEnter={(e) => {
+              if (!e.currentTarget.disabled) {
+                e.currentTarget.style.transform = "scale(1.01)";
+                e.currentTarget.style.boxShadow = "0 0 24px rgba(255,255,255,0.08)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.boxShadow = "none";
+            }}>
             {loading ? "Planning your trip…" : "Plan my trip →"}
           </button>
         </div>
@@ -650,18 +680,22 @@ function AgentView({ onBack }: { onBack: () => void }) {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0a" }}>
       <div className="sticky top-0 z-50 flex items-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(16px)" }}>
-        <button onClick={onBack} className="text-sm" style={{ color: "#555" }}>← Back</button>
-        <span className="flex-1 text-center text-sm font-medium" style={{ color: "#555" }}>naviro agent</span>
-        <div style={{ width: 50 }} />
+        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm" style={{ color: "#444" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Back
+        </button>
+        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>naviro agent</span>
+        <div style={{ width: 60 }} />
       </div>
       <div className="flex-1 flex items-center justify-center px-8">
-        <div className="text-center space-y-4">
-          <p className="text-3xl">🤖</p>
-          <h2 className="text-2xl font-medium" style={{ color: "#fff" }}>AI Agent</h2>
-          <p className="text-sm" style={{ color: "#555" }}>Coming soon — conversational trip planning</p>
+        <div className="text-center space-y-5">
+          <p className="text-4xl" style={{ animation: "float 4s ease-in-out infinite" }}>🤖</p>
+          <h2 className="text-2xl font-semibold" style={{ color: "#fff" }}>AI Agent</h2>
+          <p className="text-sm" style={{ color: "#3a3a3a" }}>Coming soon — conversational trip planning</p>
         </div>
       </div>
+      <style>{`@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }`}</style>
     </div>
   );
 }
@@ -672,18 +706,22 @@ function LiveView({ onBack }: { onBack: () => void }) {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0a" }}>
       <div className="sticky top-0 z-50 flex items-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(16px)" }}>
-        <button onClick={onBack} className="text-sm" style={{ color: "#555" }}>← Back</button>
-        <span className="flex-1 text-center text-sm font-medium" style={{ color: "#555" }}>naviro live</span>
-        <div style={{ width: 50 }} />
+        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm" style={{ color: "#444" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Back
+        </button>
+        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>naviro live</span>
+        <div style={{ width: 60 }} />
       </div>
       <div className="flex-1 flex items-center justify-center px-8">
-        <div className="text-center space-y-4">
-          <p className="text-3xl">📍</p>
-          <h2 className="text-2xl font-medium" style={{ color: "#fff" }}>Live Mode</h2>
-          <p className="text-sm" style={{ color: "#555" }}>Coming soon — real-time travel assistance</p>
+        <div className="text-center space-y-5">
+          <p className="text-4xl" style={{ animation: "float 4s ease-in-out infinite" }}>📍</p>
+          <h2 className="text-2xl font-semibold" style={{ color: "#fff" }}>Live Mode</h2>
+          <p className="text-sm" style={{ color: "#3a3a3a" }}>Coming soon — real-time travel assistance</p>
         </div>
       </div>
+      <style>{`@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }`}</style>
     </div>
   );
 }
