@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
+import LivingPhoto from "./components/LivingPhoto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -80,6 +81,9 @@ const PLACEHOLDERS = [
   "Hampi",
   "Any city in India…",
 ];
+
+// Destinations that cycle as the living backdrop on the landing slides.
+const HERO_PLACES = ["Varanasi", "Goa", "Jaipur", "Manali", "Udaipur", "Hampi"];
 
 const SLIDES = [
   {
@@ -164,6 +168,7 @@ export default function Home() {
   });
 
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [heroIdx, setHeroIdx] = useState(0);
   const sessionId = useRef(generateSessionId());
 
   const touchStartX = useRef(0);
@@ -175,6 +180,13 @@ export default function Home() {
     const t = setInterval(() => setPlaceholderIdx((p) => (p + 1) % PLACEHOLDERS.length), 2200);
     return () => clearInterval(t);
   }, []);
+
+  // Cycle the living backdrop through hero destinations on the landing.
+  useEffect(() => {
+    if (mode !== null) return;
+    const t = setInterval(() => setHeroIdx((h) => (h + 1) % HERO_PLACES.length), 7000);
+    return () => clearInterval(t);
+  }, [mode]);
 
   useEffect(() => {
     const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
@@ -341,6 +353,18 @@ export default function Home() {
         }
       `}</style>
 
+      {/* ── Living photo backdrop (cycles through hero destinations) ── */}
+      <div className="absolute inset-0 z-0">
+        <LivingPhoto query={HERO_PLACES[heroIdx]} intensity={0.7} scrim={0.62} />
+      </div>
+
+      {/* Which place you're looking at */}
+      <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 pointer-events-none">
+        <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, letterSpacing: "2px", textTransform: "uppercase" }}>
+          ✦ {HERO_PLACES[heroIdx]}
+        </span>
+      </div>
+
       {/* ── Top bar ────────────────────────────────────────────── */}
       <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center h-14"
         style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(20px)" }}>
@@ -352,7 +376,7 @@ export default function Home() {
       {/* ── Slide track ──────────────────────────────────────── */}
       <div
         ref={trackRef}
-        className="flex h-full"
+        className="flex h-full relative z-10"
         style={{
           transform: `translateX(-${slide * 100}vw)`,
           transition: "transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
@@ -360,37 +384,27 @@ export default function Home() {
       >
         {SLIDES.map((s, i) => (
           <section key={i} className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8 relative">
-            {/* Subtle radial glow behind emoji */}
-            <div className="absolute" style={{
-              width: 240, height: 240,
-              borderRadius: "50%",
-              background: "radial-gradient(circle, rgba(255,255,255,0.02) 0%, transparent 70%)",
-              top: "50%", left: "50%",
-              transform: "translate(-50%, -65%)",
-              pointerEvents: "none",
-            }} />
-
             <div className="max-w-sm w-full text-center relative z-10">
-              <p className="text-7xl mb-8" style={{ animation: "float 4s ease-in-out infinite" }}>
+              <p className="text-6xl mb-7" style={{ animation: "float 4s ease-in-out infinite", filter: "drop-shadow(0 4px 16px rgba(0,0,0,0.5))" }}>
                 {s.emoji}
               </p>
-              <h2 className="text-3xl font-semibold mb-3" style={{ color: "#fff", letterSpacing: "-0.5px" }}>
+              <h2 className="text-3xl font-semibold mb-3" style={{ color: "#fff", letterSpacing: "-0.5px", textShadow: "0 2px 24px rgba(0,0,0,0.6)" }}>
                 {s.title}
               </h2>
-              <p className="text-sm leading-relaxed mb-12" style={{ color: "#3a3a3a" }}>
+              <p className="text-sm leading-relaxed mb-12" style={{ color: "rgba(255,255,255,0.78)", textShadow: "0 1px 16px rgba(0,0,0,0.7)" }}>
                 {s.desc[0]}<br />{s.desc[1]}
               </p>
               <button
                 onClick={() => setMode(s.mode)}
                 className="px-10 py-3.5 rounded-full text-sm font-medium transition-all duration-200"
-                style={{ background: "#fff", color: "#000" }}
+                style={{ background: "#fff", color: "#000", boxShadow: "0 8px 30px rgba(0,0,0,0.35)" }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "scale(1.03)";
-                  e.currentTarget.style.boxShadow = "0 0 20px rgba(255,255,255,0.1)";
+                  e.currentTarget.style.boxShadow = "0 0 24px rgba(255,255,255,0.25)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.boxShadow = "none";
+                  e.currentTarget.style.boxShadow = "0 8px 30px rgba(0,0,0,0.35)";
                 }}
               >
                 {s.cta}
@@ -453,13 +467,20 @@ function PlanTripView({
   onBack: () => void; onSubmit: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [bgQuery, setBgQuery] = useState(city.trim() || "India travel landscape");
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300);
   }, []);
 
+  // Debounce the backdrop so we don't refetch on every keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setBgQuery(city.trim() || "India travel landscape"), 550);
+    return () => clearTimeout(id);
+  }, [city]);
+
   return (
-    <div className="min-h-screen overflow-y-auto" style={{ background: "#0a0a0a" }}>
+    <div className="relative min-h-screen overflow-y-auto" style={{ background: "#0a0a0a" }}>
       <style>{`
         @keyframes fadeUp {
           from { opacity: 0; transform: translateY(12px); }
@@ -467,6 +488,14 @@ function PlanTripView({
         }
         .fade-section { animation: fadeUp 0.5s ease-out both; }
       `}</style>
+
+      {/* Living backdrop — morphs into the chosen place */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <LivingPhoto query={bgQuery} intensity={0.45} scrim={0.82} showCredit={false} />
+      </div>
+
+      {/* Foreground content sits above the backdrop */}
+      <div className="relative z-10">
 
       {/* Top bar */}
       <div className="sticky top-0 z-50 flex items-center h-14 px-6"
@@ -669,6 +698,7 @@ function PlanTripView({
             {loading ? "Planning your trip…" : "Plan my trip →"}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );
