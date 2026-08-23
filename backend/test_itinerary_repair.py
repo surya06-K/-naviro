@@ -58,6 +58,114 @@ class ItineraryRepairTests(unittest.TestCase):
             # If someone configures an unusually large radius, allow the test to stay stable.
             self.assertGreaterEqual(len(offenders), 0)
 
+    # ── Groq structured-outputs migration (llama-3.3-70b-versatile was
+    # decommissioned 2026-08-16; these lock in the replacement's contract) ────
+
+    def _valid_slot(self, time_of_day: str, category: str = "food") -> dict:
+        return {
+            "time_of_day": time_of_day,
+            "place_name": "Test Place",
+            "description": "A place.",
+            "category": category,
+            "how_to_get_there": "Walk.",
+            "estimated_duration": "1 hour",
+            "estimated_cost": "free",
+            "local_tip": "A tip.",
+        }
+
+    def test_itinerary_slot_draft_rejects_unknown_time_of_day_and_category(self):
+        # Structured Outputs enforces this server-side via the schema's enum;
+        # this proves the Pydantic side of that contract (the schema source of
+        # truth) rejects the same values, so the two can't silently drift apart.
+        from pydantic import ValidationError
+        from main import ItinerarySlotDraft
+
+        with self.assertRaises(ValidationError):
+            ItinerarySlotDraft.model_validate(self._valid_slot("midnight"))
+        with self.assertRaises(ValidationError):
+            ItinerarySlotDraft.model_validate(self._valid_slot("morning", category="shopping"))
+
+    def test_itinerary_slot_draft_rejects_coordinates_field(self):
+        # The model is never asked to generate coordinates — geocoding always
+        # fills them in. extra="forbid" is what lets Structured Outputs set
+        # additionalProperties: false, so this must stay rejected.
+        from pydantic import ValidationError
+        from main import ItinerarySlotDraft
+
+        with self.assertRaises(ValidationError):
+            ItinerarySlotDraft.model_validate(
+                {**self._valid_slot("morning"), "coordinates": {"lat": 0.0, "lng": 0.0}}
+            )
+
+    def test_itinerary_day_draft_rejects_out_of_order_slots(self):
+        from pydantic import ValidationError
+        from main import ItineraryDayDraft
+
+        with self.assertRaises(ValidationError):
+            ItineraryDayDraft.model_validate(
+                {
+                    "day_number": 1,
+                    "day_title": "Test",
+                    "slots": [
+                        self._valid_slot("evening"),
+                        self._valid_slot("morning"),
+                        self._valid_slot("afternoon"),
+                    ],
+                }
+            )
+
+    def test_itinerary_draft_to_final_dict_matches_itinerary_shape(self):
+        # End-to-end structural check (no network): a schema-conformant draft,
+        # once expanded, must satisfy the same Itinerary model /api/plan returns
+        # to the frontend — this is the seam between "what the LLM generates"
+        # and "what geocode_itinerary_with_repair + the API response expect".
+        from main import Itinerary, ItineraryDraft
+
+        draft = ItineraryDraft.model_validate(
+            {
+                "destination": "Narsipatnam",
+                "total_days": 1,
+                "summary": "A test summary.",
+                "days": [
+                    {
+                        "day_number": 1,
+                        "day_title": "Day one",
+                        "slots": [
+                            self._valid_slot("morning", "historical"),
+                            self._valid_slot("afternoon", "food"),
+                            self._valid_slot("evening", "cultural"),
+                        ],
+                    }
+                ],
+            }
+        )
+        final = draft.to_final_dict()
+        itinerary = Itinerary.model_validate(final)  # raises if the shapes disagree
+        slot = itinerary.days[0].slots[0]
+        self.assertEqual(slot.coordinates.lat, 0.0)
+        self.assertEqual(slot.coordinates.lng, 0.0)
+
+    def test_generate_and_validate_retries_once_then_succeeds(self):
+        # Locks in the "retry once with the error appended, then fail honestly"
+        # contract for when our own cross-field checks (day ordering, etc. —
+        # not expressible in JSON Schema) reject an otherwise schema-valid reply.
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from main import _generate_and_validate, ReplanResponseDraft, REPLAN_DRAFT_SCHEMA
+
+        good_raw = json.dumps({"slots": [self._valid_slot("morning")]})
+        with patch("main.invoke_llm", new=AsyncMock(side_effect=["not valid json", good_raw])) as mocked:
+            result = asyncio.run(
+                _generate_and_validate(
+                    [{"role": "system", "content": "x"}],
+                    schema_name="replan",
+                    schema=REPLAN_DRAFT_SCHEMA,
+                    model=ReplanResponseDraft,
+                )
+            )
+        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(result.slots[0].place_name, "Test Place")
+
 
 if __name__ == "__main__":
     unittest.main()

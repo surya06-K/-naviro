@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from dotenv import load_dotenv
 import os
 import json
@@ -14,11 +14,10 @@ import asyncio
 import logging
 import math
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
-from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from groq import AsyncGroq, BadRequestError as GroqBadRequestError
 
 from database import init_db, get_db
 
@@ -166,76 +165,99 @@ Local tip — this must be something you'd only know if you lived there. Test it
 ✓ REAL TIP: "There's no sign, but if you walk through the blue gate at the back, there's a rooftop with the best view of the lake. It's someone's terrace but they don't mind visitors."
 ✓ REAL TIP: "The uncle who runs the chai stall knows every local — tell him where you're from and he'll suggest three things nobody else will."
 
-━━━ OUTPUT FORMAT ━━━
-Respond ONLY with a valid JSON object — no extra text, no markdown, no backticks:
-
-{
-  "destination": "city name",
-  "total_days": 2,
-  "summary": "one punchy line — what makes THIS itinerary different from a generic one",
-  "days": [
-    {
-      "day_number": 1,
-      "day_title": "short evocative theme for the day",
-      "slots": [
-        {
-          "time_of_day": "morning",
-          "place_name": "exact name — specific enough to find on a map",
-          "description": "2–3 short sentences. Friend-tone. Specific detail that makes it real.",
-          "category": "historical / food / nature / cultural / market",
-          "how_to_get_there": "exact transport — bus number, auto landmark, walking direction — with INR cost",
-          "estimated_duration": "X hours",
-          "estimated_cost": "specific INR amount or 'free'",
-          "local_tip": "one real insider detail. If a travel blogger would write it, it's not good enough.",
-          "coordinates": {"lat": 0.0, "lng": 0.0}
-        }
-      ]
-    }
-  ]
-}
+━━━ OUTPUT ━━━
+Your response is constrained to a fixed JSON schema — don't think about formatting,
+only content. Never mention coordinates or lat/lng: they are not part of your output
+and are looked up automatically after you respond.
 
 Hard rules:
-- Exactly 3 slots per day: morning, afternoon, evening — in that order
+- category must be the single best fit: historical, food, nature, cultural, or market
 - Every place must be inside the requested destination city/town (or its immediate outskirts), never from another city
-- Coordinates are looked up automatically — always set to {"lat": 0.0, "lng": 0.0}
 - Never repeat a place across days
-- When the user refines, only change what they asked — preserve everything else
-- Never add any text before or after the JSON"""
+- When the user refines, only change what they asked — preserve everything else"""
 
 # ── In-memory session store ───────────────────────────────────────────────────
 MAX_ACTIVE_SESSIONS = int(os.getenv("MAX_ACTIVE_SESSIONS", "1000") or "1000")
-sessions: OrderedDict[str, list] = OrderedDict()
+sessions: OrderedDict[str, list[dict[str, str]]] = OrderedDict()
 
 # ── LLM (Groq — free tier, fast) ─────────────────────────────────────────────
+# llama-3.3-70b-versatile was decommissioned by Groq on 2026-08-16. gpt-oss-120b
+# is Groq's recommended replacement and — unlike most Groq models — supports
+# strict json_schema structured outputs, so the model literally cannot return
+# malformed JSON or a value outside an enum. Override via GROQ_MODEL if Groq
+# deprecates this one too.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 _groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-llm = None
-if _groq_api_key:
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        groq_api_key=_groq_api_key,
-        temperature=0.7,
-    )
+llm: Optional[AsyncGroq] = AsyncGroq(api_key=_groq_api_key) if _groq_api_key else None
 
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "30") or "30")
 
 
-async def invoke_llm(messages: list) -> Any:
-    """Run the synchronous client without blocking the API event loop forever."""
+async def invoke_llm(
+    messages: list[dict[str, str]],
+    *,
+    schema_name: str,
+    schema: dict[str, Any],
+    temperature: float = 0.7,
+) -> str:
+    """Call Groq with strict JSON-schema structured output. Returns raw JSON text —
+    strict mode guarantees it parses and matches `schema`, so callers only need to
+    re-check the constraints JSON Schema itself can't express (e.g. slot ordering)."""
     if llm is None:
         raise RuntimeError("LLM is not configured")
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(llm.invoke, messages),
+        response = await asyncio.wait_for(
+            llm.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                temperature=temperature,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": schema_name, "schema": schema, "strict": True},
+                },
+            ),
             timeout=LLM_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError as exc:
         raise TimeoutError("The model request timed out") from exc
+    return response.choices[0].message.content or ""
 
 
-def get_session_history(session_id: str) -> list:
+async def _generate_and_validate(
+    messages: list[dict[str, str]],
+    *,
+    schema_name: str,
+    schema: dict[str, Any],
+    model: type[BaseModel],
+    temperature: float = 0.7,
+) -> BaseModel:
+    """Generate + validate, with one retry if the response is rejected — either
+    by our own cross-field checks (not expressible in JSON Schema, e.g.
+    day-number ordering) or by Groq's own schema check: strict mode's
+    constrained decoding guarantees types and enums, but not array length, so
+    a list that comes up short of minItems is rejected server-side as an HTTP
+    400 instead of returned as malformed content. This is one retry, not a
+    resilience layer — rate limits or outages still propagate immediately."""
+    try:
+        raw = await invoke_llm(messages, schema_name=schema_name, schema=schema, temperature=temperature)
+        return model.model_validate(json.loads(raw))
+    except (json.JSONDecodeError, ValidationError, GroqBadRequestError) as exc:
+        retry_messages = messages + [
+            {
+                "role": "user",
+                "content": f"Your previous response was invalid: {exc}. Return corrected JSON that fully matches the schema.",
+            }
+        ]
+        raw_retry = await invoke_llm(
+            retry_messages, schema_name=schema_name, schema=schema, temperature=temperature
+        )
+        return model.model_validate(json.loads(raw_retry))  # let a second failure propagate
+
+
+def get_session_history(session_id: str) -> list[dict[str, str]]:
     history = sessions.get(session_id)
     if history is None:
-        history = [SystemMessage(content=SYSTEM_PROMPT)]
+        history = [{"role": "system", "content": SYSTEM_PROMPT}]
         sessions[session_id] = history
     sessions.move_to_end(session_id)
     while len(sessions) > MAX_ACTIVE_SESSIONS:
@@ -449,37 +471,28 @@ async def _repair_itinerary_far_places(itinerary: dict, offenders: list[dict]) -
 
 Some places are NOT inside the destination town/city (they geocode far away). Replace ONLY those slots with better local alternatives inside the destination town/city or immediate outskirts (<= 20 km). Keep everything else unchanged.
 
-Hard rules:
-- Output ONLY valid JSON (no markdown, no backticks).
+Rules:
 - Preserve: destination, total_days, day_number/day_title structure, and time_of_day values.
 - For each offender slot: change place_name/description/how_to_get_there/estimated_* /local_tip to match the new local place.
 - Never include a place from another city (no day trips) unless the user explicitly asked.
-- Coordinates must always be {"lat": 0.0, "lng": 0.0}.
 """
 
     try:
-        response = await invoke_llm(
+        raw = await invoke_llm(
             [
-                SystemMessage(content=repair_prompt),
-                HumanMessage(
-                    content=json.dumps(
-                        {"itinerary": itinerary, "offenders": offenders},
-                        ensure_ascii=False,
-                    )
-                ),
-            ]
+                {"role": "system", "content": repair_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"itinerary": itinerary, "offenders": offenders}, ensure_ascii=False
+                    ),
+                },
+            ],
+            schema_name="itinerary_repair",
+            schema=ITINERARY_DRAFT_SCHEMA,
         )
-        clean = (response.content or "").strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-            clean = clean.strip()
-        result = json.loads(clean)
-        # Unwrap if LLM returns {"itinerary": {...}} instead of the plain dict
-        if isinstance(result, dict) and "itinerary" in result and "days" not in result:
-            result = result["itinerary"]
-        return result
+        draft = ItineraryDraft.model_validate(json.loads(raw))
+        return draft.to_final_dict()
     except Exception as e:
         logger.warning("Itinerary repair failed: %s", e)
         return None
@@ -577,6 +590,32 @@ class ItinerarySlot(BaseModel):
     coordinates: Coordinates = Field(default_factory=Coordinates)
 
 
+# ── LLM-facing "draft" schemas ────────────────────────────────────────────────
+# The model never generates coordinates — geocoding always fills them in
+# server-side (it's the only source of truth for where a place actually is), so
+# these mirror the response models above minus that field. Every draft model
+# sets extra="forbid" so Structured Outputs can emit additionalProperties: false,
+# which Groq's strict json_schema mode requires on every object in the schema.
+TimeOfDay = Literal["morning", "afternoon", "evening"]
+SlotCategory = Literal["historical", "food", "nature", "cultural", "market"]
+
+
+class ItinerarySlotDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    time_of_day: TimeOfDay
+    place_name: str = Field(min_length=1, max_length=180)
+    description: str = Field(min_length=1, max_length=1500)
+    category: SlotCategory
+    how_to_get_there: str = Field(min_length=1, max_length=800)
+    estimated_duration: str = Field(min_length=1, max_length=80)
+    estimated_cost: str = Field(min_length=1, max_length=80)
+    local_tip: str = Field(min_length=1, max_length=1000)
+
+    def to_final(self) -> dict[str, Any]:
+        """Expand into the final slot shape; coordinates are filled in by geocoding."""
+        return {**self.model_dump(), "coordinates": {"lat": 0.0, "lng": 0.0}}
+
+
 class ItineraryDay(BaseModel):
     day_number: int = Field(ge=1, le=30)
     day_title: str = Field(min_length=1, max_length=160)
@@ -606,13 +645,63 @@ class Itinerary(BaseModel):
         return self
 
 
+class ItineraryDayDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    day_number: int = Field(ge=1, le=30)
+    day_title: str = Field(min_length=1, max_length=160)
+    slots: list[ItinerarySlotDraft] = Field(min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def has_one_slot_for_each_part_of_day(self):
+        # Strict mode's enum guarantees each time_of_day is valid; it can't
+        # guarantee the three appear in order, so we still check that here.
+        expected = ["morning", "afternoon", "evening"]
+        if [slot.time_of_day for slot in self.slots] != expected:
+            raise ValueError("Slots must be morning, afternoon, and evening in that order")
+        return self
+
+
+class ItineraryDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    destination: str = Field(min_length=1, max_length=120)
+    total_days: int = Field(ge=1, le=30)
+    summary: str = Field(min_length=1, max_length=800)
+    days: list[ItineraryDayDraft] = Field(min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def days_match_declared_total(self):
+        if len(self.days) != self.total_days:
+            raise ValueError("total_days must match the number of day entries")
+        if [day.day_number for day in self.days] != list(range(1, self.total_days + 1)):
+            raise ValueError("Day numbers must be consecutive and start at 1")
+        return self
+
+    def to_final_dict(self) -> dict[str, Any]:
+        """Expand into the shape `Itinerary` expects, coordinates zeroed pending geocoding."""
+        return {
+            "destination": self.destination,
+            "total_days": self.total_days,
+            "summary": self.summary,
+            "days": [
+                {
+                    "day_number": day.day_number,
+                    "day_title": day.day_title,
+                    "slots": [slot.to_final() for slot in day.slots],
+                }
+                for day in self.days
+            ],
+        }
+
+
 class EmergencyContact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=200)
     address: str = Field(min_length=1, max_length=500)
     phone: str = Field(min_length=1, max_length=80)
 
 
 class EmergencyInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     emergency_number: str = Field(min_length=1, max_length=80)
     hospitals: list[EmergencyContact] = Field(min_length=1, max_length=3)
     police_station: EmergencyContact
@@ -621,6 +710,7 @@ class EmergencyInfo(BaseModel):
 
 
 class LiveSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     place_name: str = Field(min_length=1, max_length=180)
     why_now: str = Field(min_length=1, max_length=800)
     how_to_get_there: str = Field(min_length=1, max_length=800)
@@ -629,6 +719,7 @@ class LiveSuggestion(BaseModel):
 
 
 class LiveResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     context: str = Field(min_length=1, max_length=800)
     suggestions: list[LiveSuggestion] = Field(min_length=2, max_length=3)
 
@@ -637,22 +728,28 @@ class ReplanResponse(BaseModel):
     slots: list[ItinerarySlot] = Field(min_length=1, max_length=3)
 
 
+class ReplanResponseDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slots: list[ItinerarySlotDraft] = Field(min_length=1, max_length=3)
+
+
+# Precomputed once at import time — regenerating a JSON schema on every request
+# would be wasted work for a schema that never changes at runtime.
+ITINERARY_DRAFT_SCHEMA = ItineraryDraft.model_json_schema()
+REPLAN_DRAFT_SCHEMA = ReplanResponseDraft.model_json_schema()
+EMERGENCY_INFO_SCHEMA = EmergencyInfo.model_json_schema()
+LIVE_RESPONSE_SCHEMA = LiveResponse.model_json_schema()
+
+
 def parse_llm_json(raw_response: str, expected_type: type[BaseModel]) -> BaseModel:
-    """Extract a JSON response from the model and validate its public shape."""
-    clean = (raw_response or "").strip()
-    if clean.startswith("```"):
-        fence_end = clean.find("\n", 3)
-        clean = clean[fence_end + 1:] if fence_end != -1 else ""
-        if clean.endswith("```"):
-            clean = clean[:-3]
-        clean = clean.strip()
+    """Validate a Structured-Outputs response. Strict mode guarantees `raw_response`
+    is well-formed JSON matching the schema we sent, so this only needs to catch
+    the empty-response edge case and hand off to Pydantic for our own extra
+    constraints (string lengths, cross-field ordering) that JSON Schema can't express."""
     try:
-        parsed = json.loads(clean)
+        parsed = json.loads(raw_response or "")
     except json.JSONDecodeError as exc:
         raise ValueError("The model did not return valid JSON") from exc
-
-    if expected_type is Itinerary and isinstance(parsed, dict) and "itinerary" in parsed and "days" not in parsed:
-        parsed = parsed["itinerary"]
     return expected_type.model_validate(parsed)
 
 
@@ -685,19 +782,19 @@ async def plan(request: PlanRequest):
 
     try:
         history = get_session_history(request.session_id)
-        history.append(HumanMessage(content=request.message))
+        history.append({"role": "user", "content": request.message})
 
-        response = await invoke_llm(history)
-        raw_reply = str(response.content or "")
-        itinerary = parse_llm_json(raw_reply, Itinerary)
-        geocoded = await geocode_itinerary_with_repair(itinerary.model_dump())
+        draft = await _generate_and_validate(
+            history, schema_name="itinerary", schema=ITINERARY_DRAFT_SCHEMA, model=ItineraryDraft
+        )
+        geocoded = await geocode_itinerary_with_repair(draft.to_final_dict())
         itinerary = Itinerary.model_validate(geocoded)
 
         # Only retain a valid model response as conversation context.
-        history.append(AIMessage(content=raw_reply))
+        history.append({"role": "assistant", "content": json.dumps(draft.model_dump())})
         return PlanResponse(reply="Itinerary ready.", itinerary=itinerary)
 
-    except (ValueError, ValidationError):
+    except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
         logger.warning("Rejected invalid itinerary response for session %s", request.session_id)
         raise HTTPException(
             status_code=502,
@@ -718,21 +815,28 @@ class EmergencyRequest(BaseModel):
 async def emergency_info(request: EmergencyRequest):
     if llm is None:
         raise HTTPException(status_code=500, detail="LLM not configured")
-    prompt = f"""For the travel destination "{request.destination}" in "{request.country}", return ONLY this JSON with no extra text, no markdown:
-{{
-  "emergency_number": "local police/emergency number",
-  "hospitals": [
-    {{"name": "hospital name", "address": "full address", "phone": "number"}},
-    {{"name": "hospital name", "address": "full address", "phone": "number"}}
-  ],
-  "police_station": {{"name": "station name", "address": "full address", "phone": "number"}},
-  "embassy": {{"country": "Indian Embassy / High Commission", "address": "full address", "phone": "number"}},
-  "safety_tips": ["specific tip 1", "specific tip 2", "specific tip 3"]
-}}"""
+    # NOTE: this is still LLM-generated, including phone numbers — an invented
+    # emergency number is the one category of wrong answer that can hurt someone.
+    # Flagged for grounding in real Places/government data in a follow-up pass;
+    # not fixed here since this change is scoped to the model migration only.
+    prompt = (
+        f'You are a travel safety assistant. For the destination "{request.destination}" '
+        f'in "{request.country}", provide: the local police/emergency phone number, '
+        f"2-3 nearby hospitals with real names and addresses, the nearest police station, "
+        f"embassy or high commission details (only relevant for international travel — "
+        f"use India's own emergency services if the destination is within India), and "
+        f"3 specific, practical safety tips for this destination. Be accurate — do not "
+        f"invent a detail you are not confident about; prefer a well-known, findable "
+        f"landmark over a fabricated address."
+    )
     try:
-        response = await invoke_llm([SystemMessage(content=prompt)])
-        return parse_llm_json(str(response.content or ""), EmergencyInfo)
-    except (ValueError, ValidationError):
+        return await _generate_and_validate(
+            [{"role": "system", "content": prompt}],
+            schema_name="emergency_info",
+            schema=EMERGENCY_INFO_SCHEMA,
+            model=EmergencyInfo,
+        )
+    except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
         logger.warning("Rejected invalid emergency response for %s", request.destination)
         raise HTTPException(status_code=502, detail="Safety information is unavailable right now. Please use local emergency services.")
     except Exception:
@@ -828,23 +932,19 @@ Already visited today: {", ".join(request.past_slots) or "Nothing yet"}
 
 Give 2–3 specific suggestions for RIGHT NOW based on their location and remaining time. Write like a local friend texting them — short, direct, specific. No tourism-brochure language.
 
-Return ONLY valid JSON, no markdown:
-{{
-  "context": "one sentence setting the scene — what time/vibe it is right now",
-  "suggestions": [
-    {{
-      "place_name": "exact name findable on a map",
-      "why_now": "why this works at this specific time and from their location — 1 sentence",
-      "how_to_get_there": "from their current location — specific transport and cost in INR",
-      "estimated_duration": "X hours",
-      "local_tip": "one real insider tip a local would know"
-    }}
-  ]
-}}"""
+context should be one sentence setting the scene — what time/vibe it is right now.
+Each suggestion's place_name must be an exact name findable on a map, why_now should
+explain why it works at this specific time and location, how_to_get_there should be
+from their current location with specific transport and cost in INR, and local_tip
+should be one real insider detail a local would know."""
     try:
-        response = await invoke_llm([SystemMessage(content=prompt)])
-        return parse_llm_json(str(response.content or ""), LiveResponse)
-    except (ValueError, ValidationError):
+        return await _generate_and_validate(
+            [{"role": "system", "content": prompt}],
+            schema_name="live_suggestions",
+            schema=LIVE_RESPONSE_SCHEMA,
+            model=LiveResponse,
+        )
+    except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
         logger.warning("Rejected invalid live-mode response for %s", request.destination)
         raise HTTPException(status_code=502, detail="Naviro could not make reliable live suggestions. Please try again.")
     except Exception:
@@ -875,25 +975,26 @@ Already visited (keep these, don't repeat): {", ".join(request.completed_slots) 
 Original remaining plan: {json.dumps([slot.model_dump() for slot in request.original_slots], ensure_ascii=False)}
 
 Replace the disrupted/remaining slots with better alternatives that account for the disruption.
-Keep completed slots unchanged. Respond ONLY with a JSON array of new slot objects.
 
 Rules:
 - Adapt specifically to the disruption (rain → indoor spots, closed → nearby alternative, late → closer/faster)
 - Don't repeat any completed spots
 - Maintain time-of-day order
-- Keep within the city
-- Coordinates always {{"lat": 0.0, "lng": 0.0}}
-- Match the same slot structure as the original"""
+- Keep within the city"""
     try:
-        response = await invoke_llm([SystemMessage(content=prompt)])
-        parsed_slots = parse_llm_json(str(response.content or ""), ReplanResponse)
+        draft = await _generate_and_validate(
+            [{"role": "system", "content": prompt}],
+            schema_name="replan",
+            schema=REPLAN_DRAFT_SCHEMA,
+            model=ReplanResponseDraft,
+        )
         dummy_itinerary = {
             "destination": request.destination,
-            "days": [{"day_number": 1, "slots": [slot.model_dump() for slot in parsed_slots.slots]}],
+            "days": [{"day_number": 1, "slots": [slot.to_final() for slot in draft.slots]}],
         }
         geocoded = await geocode_itinerary(dummy_itinerary)
         return ReplanResponse.model_validate({"slots": geocoded["days"][0]["slots"]})
-    except (ValueError, ValidationError):
+    except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
         logger.warning("Rejected invalid replan response for %s", request.destination)
         raise HTTPException(status_code=502, detail="Naviro could not create a reliable replanned route. Please try again.")
     except Exception:
