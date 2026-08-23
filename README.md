@@ -7,7 +7,7 @@ AI-powered travel guide — instant, hyper-local itineraries for anyone new to a
 ```
 travel-ai/
   ├── frontend/     Next.js (React + TypeScript + Tailwind)
-  └── backend/      Python FastAPI + LangChain + Groq (Llama 3.3)
+  └── backend/      Python FastAPI + Groq SDK (openai/gpt-oss-120b)
 ```
 
 ## Quick Start

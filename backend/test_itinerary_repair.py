@@ -166,6 +166,100 @@ class ItineraryRepairTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, 2)
         self.assertEqual(result.slots[0].place_name, "Test Place")
 
+    # ── /api/emergency grounded rewrite (emergency_number is now a hardcoded
+    # constant, hospitals/police_station come from Places Nearby Search and are
+    # empty rather than invented on failure) ───────────────────────────────
+
+    def test_places_nearby_returns_empty_list_when_api_key_missing(self):
+        import asyncio
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = ""
+        try:
+            # No API key means _places_nearby returns before ever touching the
+            # client, so passing None in place of a real httpx.AsyncClient is safe.
+            result = asyncio.run(main._places_nearby(None, 17.667, 82.612, "hospital"))
+            self.assertEqual(result, [])
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_places_nearby_returns_empty_list_when_request_raises(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, patch
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = "test-key"
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(
+                    httpx.AsyncClient, "get", new=AsyncMock(side_effect=Exception("simulated network failure"))
+                ):
+                    return await main._places_nearby(client, 17.667, 82.612, "hospital")
+
+        try:
+            result = asyncio.run(run())
+            self.assertEqual(result, [])
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_emergency_endpoint_degrades_gracefully_without_llm_or_places_key(self):
+        from fastapi.testclient import TestClient
+        from unittest.mock import AsyncMock, patch
+        import main
+
+        previous_llm = main.llm
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.llm = None
+        main.GOOGLE_MAPS_API_KEY = ""
+        main._request_windows.clear()
+        try:
+            # geocode_city_center is mocked to a real, non-zero coordinate pair
+            # (rather than left to run for real) so the test stays hermetic —
+            # with no Google key configured it would otherwise fall back to a
+            # live Nominatim HTTP call plus a deliberate 1.1s rate-limit sleep.
+            # A non-zero result still makes emergency_info proceed into the
+            # Places lookups, so this exercises the real "no Places key"
+            # degrade path (already unit-tested above) end-to-end through the
+            # actual endpoint, rather than short-circuiting before reaching it.
+            with patch(
+                "main.geocode_city_center",
+                new=AsyncMock(return_value={"lat": 26.9124, "lng": 75.7873}),
+            ):
+                with TestClient(main.app) as client:
+                    response = client.post("/api/emergency", json={"destination": "Jaipur"})
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["emergency_number"], main.INDIA_EMERGENCY_NUMBER)
+            self.assertEqual(body["hospitals"], [])
+            self.assertIsNone(body["police_station"])
+            self.assertIsInstance(body["safety_tips"], list)
+            self.assertGreater(len(body["safety_tips"]), 0)
+        finally:
+            main.llm = previous_llm
+            main.GOOGLE_MAPS_API_KEY = previous_key
+            main._request_windows.clear()
+
+    def test_emergency_contact_and_info_models_validate_expected_shape(self):
+        from main import EmergencyContact, EmergencyInfo
+
+        contact = EmergencyContact.model_validate(
+            {"name": "X", "address": "Y", "maps_url": "https://maps.google.com/..."}
+        )
+        self.assertEqual(contact.name, "X")
+
+        # police_station: Optional[...] accepts None, and there's no required
+        # embassy field — this locks in that shape against the grounded rewrite.
+        info = EmergencyInfo.model_validate(
+            {"emergency_number": "112", "hospitals": [], "police_station": None, "safety_tips": ["tip"]}
+        )
+        self.assertIsNone(info.police_station)
+        self.assertEqual(info.hospitals, [])
+        self.assertEqual(info.safety_tips, ["tip"])
+
 
 if __name__ == "__main__":
     unittest.main()

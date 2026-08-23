@@ -7,7 +7,6 @@ import type {
   Polyline as LeafletPolyline,
 } from "leaflet";
 import LiveMode from "./LiveMode";
-import DirectionsPanel from "./DirectionsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -31,15 +30,14 @@ interface Day {
 interface EmergencyContact {
   name: string;
   address: string;
-  phone?: string;
+  maps_url: string;
 }
 
 interface EmergencyInfo {
   emergency_number: string;
-  hospitals?: EmergencyContact[];
-  police_station?: EmergencyContact;
-  embassy?: EmergencyContact & { country?: string };
-  safety_tips?: string[];
+  hospitals: EmergencyContact[];
+  police_station: EmergencyContact | null;
+  safety_tips: string[];
 }
 
 interface Props {
@@ -116,23 +114,39 @@ export default function TravelMap({
   const [mapReady,      setMapReady]      = useState(false);
 
   // Phase 2 state
-  const [showEmergency,  setShowEmergency]  = useState(false);
-  const [emergency,      setEmergency]      = useState<EmergencyInfo | null>(null);
-  const [showLive,       setShowLive]       = useState(false);
-  const [showDirections, setShowDirections] = useState(false);
+  const [showEmergency,    setShowEmergency]    = useState(false);
+  const [emergency,        setEmergency]        = useState<EmergencyInfo | null>(null);
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [emergencyError,   setEmergencyError]   = useState(false);
+  const [showLive,         setShowLive]         = useState(false);
 
-  // ── Fetch emergency info once per destination ───────────────────────────────
+  // Destination changed (e.g. a refine swapped cities) — drop any stale safety
+  // info so the next Safety tap re-fetches for the new place, not the old one.
   useEffect(() => {
+    setEmergency(null);
+    setEmergencyError(false);
+  }, [destination]);
+
+  // ── Fetch emergency info on demand (first tap of Safety, not every render) ──
+  function openEmergency() {
+    setShowEmergency(true);
+    if (emergency || emergencyLoading) return;
+    setEmergencyLoading(true);
+    setEmergencyError(false);
     const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
     fetch(`${apiUrl}/api/emergency`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ destination }),
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("request failed");
+        return r.json();
+      })
       .then(setEmergency)
-      .catch(() => {});
-  }, [destination]);
+      .catch(() => setEmergencyError(true))
+      .finally(() => setEmergencyLoading(false));
+  }
 
   // ── Init Leaflet map (once) ─────────────────────────────────────────────────
   useEffect(() => {
@@ -318,7 +332,7 @@ export default function TravelMap({
               <div className="flex items-center gap-2 shrink-0 mt-1">
                 {loading && <span className="text-[#484f58] text-xs animate-pulse">Updating…</span>}
                 <button
-                  onClick={() => setShowEmergency(!showEmergency)}
+                  onClick={() => (showEmergency ? setShowEmergency(false) : openEmergency())}
                   title="Safety & Emergency Info"
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                     showEmergency
@@ -382,57 +396,60 @@ export default function TravelMap({
                   className="text-[#484f58] hover:text-[#e6edf3] transition-colors text-xl leading-none">×</button>
               </div>
 
-              {!emergency ? (
+              {emergencyLoading && (
                 <p className="text-[#484f58] text-sm animate-pulse">Loading safety info…</p>
-              ) : (
+              )}
+
+              {emergencyError && (
+                <p className="text-[#8b949e] text-sm">
+                  Couldn&apos;t load safety info right now. In an emergency, dial{" "}
+                  <span className="text-[#e6edf3] font-semibold">112</span> — India&apos;s
+                  national emergency number.
+                </p>
+              )}
+
+              {emergency && (
                 <div className="space-y-3">
                   <div className="bg-red-900/30 border border-red-800/40 rounded-xl p-3">
                     <p className="text-red-400 text-xs font-semibold mb-1">🚨 Emergency Number</p>
                     <p className="text-[#e6edf3] font-bold text-2xl">{emergency.emergency_number}</p>
                   </div>
 
-                  {(emergency.hospitals || []).length > 0 && (
-                    <div>
-                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                  <div>
+                    <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                    {emergency.hospitals.length > 0 ? (
                       <div className="space-y-2">
-                        {emergency.hospitals?.map((h, i) => (
-                          <div key={i} className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
+                        {emergency.hospitals.map((h, i) => (
+                          <a key={i} href={h.maps_url} target="_blank" rel="noopener noreferrer"
+                            className="block bg-[#1c2128] border border-[#2d333b] rounded-xl p-3 hover:border-[#484f58] transition-colors">
                             <p className="text-[#e6edf3] text-sm font-semibold">{h.name}</p>
                             <p className="text-[#8b949e] text-xs">{h.address}</p>
-                            {h.phone && <p className="text-[#8b949e] text-xs mt-1">📞 {h.phone}</p>}
-                          </div>
+                            <p className="text-[#397091] text-xs mt-1">View on map →</p>
+                          </a>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-[#8b949e] text-xs">
+                        Couldn&apos;t verify nearby hospitals. Search &quot;hospital near me&quot; on maps once you arrive.
+                      </p>
+                    )}
+                  </div>
 
-                  {emergency.police_station && (
-                    <div>
-                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
-                      <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
+                  <div>
+                    <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                    {emergency.police_station ? (
+                      <a href={emergency.police_station.maps_url} target="_blank" rel="noopener noreferrer"
+                        className="block bg-[#1c2128] border border-[#2d333b] rounded-xl p-3 hover:border-[#484f58] transition-colors">
                         <p className="text-[#e6edf3] text-sm font-semibold">{emergency.police_station.name}</p>
                         <p className="text-[#8b949e] text-xs">{emergency.police_station.address}</p>
-                        {emergency.police_station.phone && (
-                          <p className="text-[#8b949e] text-xs mt-1">📞 {emergency.police_station.phone}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                        <p className="text-[#397091] text-xs mt-1">View on map →</p>
+                      </a>
+                    ) : (
+                      <p className="text-[#8b949e] text-xs">Couldn&apos;t verify the nearest police station.</p>
+                    )}
+                  </div>
 
-                  {emergency.embassy && (
-                    <div>
-                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🇮🇳 Indian Embassy</p>
-                      <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-3">
-                        <p className="text-[#e6edf3] text-sm font-semibold">{emergency.embassy.country}</p>
-                        <p className="text-[#8b949e] text-xs">{emergency.embassy.address}</p>
-                        {emergency.embassy.phone && (
-                          <p className="text-[#8b949e] text-xs mt-1">📞 {emergency.embassy.phone}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {Array.isArray(emergency.safety_tips) && emergency.safety_tips.length > 0 && (
+                  {emergency.safety_tips.length > 0 && (
                     <div>
                       <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
                       <div className="space-y-1">
@@ -475,24 +492,6 @@ export default function TravelMap({
           );
         })}
       </div>
-
-      {/* ── Directions overlay ───────────────────────────────── */}
-      {showDirections && slot && (
-        <div className="absolute inset-0 z-30 bg-black/30 backdrop-blur-sm">
-          <div className="absolute inset-0 flex items-end justify-center">
-            <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl">
-              <DirectionsPanel
-                destinationName={slot.place_name}
-                destinationLat={slot.coordinates.lat}
-                destinationLng={slot.coordinates.lng}
-                city={destination}
-                localTransportHint={slot.how_to_get_there}
-                onBack={() => setShowDirections(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Bottom: slot detail OR refine bar ────────────────── */}
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
@@ -538,37 +537,18 @@ export default function TravelMap({
                 <p className="text-[#8b949e]">{slot.local_tip}</p>
               </div>
 
-              {/* Booking links */}
-              <div className="flex gap-2 flex-wrap mb-3">
-                {!["food", "cultural", "market"].includes(slot.category) && (
-                  <a href={`https://www.booking.com/search.html?ss=${encodeURIComponent(slot.place_name + " " + destination)}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900/30 border border-blue-800/40 text-blue-400 text-xs font-medium hover:bg-blue-900/50 transition-colors">
-                    🏨 Booking.com
-                  </a>
-                )}
-                <a href={`https://www.makemytrip.com/hotels/hotel-listing/?cityCode=${encodeURIComponent(destination)}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/30 border border-red-800/40 text-red-400 text-xs font-medium hover:bg-red-900/50 transition-colors">
-                  ✈️ MakeMyTrip
-                </a>
-                <a href={`https://www.skyscanner.co.in/flights-to/${encodeURIComponent(destination.toLowerCase().replace(/\s+/g, "-"))}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-900/30 border border-teal-800/40 text-teal-400 text-xs font-medium hover:bg-teal-900/50 transition-colors">
-                  🛫 Skyscanner
-                </a>
-              </div>
-
-              {/* Directions button */}
-              <button
-                onClick={() => setShowDirections(true)}
+              {/* Directions — plain Google Maps deep link, live turn-by-turn beats
+                  an in-app fare estimate that goes stale the moment rates change */}
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${slot.coordinates.lat},${slot.coordinates.lng}`}
+                target="_blank" rel="noopener noreferrer"
                 className="w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
                 style={{ background: "#397091" }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "#4a8ab0")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "#397091")}
               >
                 🧭 Get me there →
-              </button>
+              </a>
             </div>
           ) : (
             <form onSubmit={handleRefine}

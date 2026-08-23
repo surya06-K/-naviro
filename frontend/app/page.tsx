@@ -82,36 +82,6 @@ const PLACEHOLDERS = [
   "Any city in India…",
 ];
 
-// Destinations that cycle as the living backdrop on the landing slides.
-const HERO_PLACES = ["Varanasi", "Goa", "Jaipur", "Manali", "Udaipur", "Hampi"];
-
-const SLIDES = [
-  {
-    emoji: "🗺️",
-    title: "Plan your trip",
-    desc: ["Pick a city. Choose your vibe.", "Get a full itinerary in seconds."],
-    cta: "Start planning",
-    mode: "plan" as const,
-    glow: "rgba(255,255,255,0.03)",
-  },
-  {
-    emoji: "🤖",
-    title: "AI travel agent",
-    desc: ["Tell Naviro what you want.", "It plans the entire trip for you."],
-    cta: "Chat with agent",
-    mode: "agent" as const,
-    glow: "rgba(255,255,255,0.03)",
-  },
-  {
-    emoji: "📍",
-    title: "I'm travelling now",
-    desc: ["Already on a trip? Get live tips,", "replan your day, find nearby food."],
-    cta: "Enter live mode",
-    mode: "live" as const,
-    glow: "rgba(255,255,255,0.03)",
-  },
-];
-
 // ─── Dynamic imports ──────────────────────────────────────────────────────────
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
@@ -137,13 +107,8 @@ function buildPrompt(city: string, days: string, vibes: string[], style: string,
   return parts.join(". ") + ".";
 }
 
-const TOTAL_SLIDES = 3;
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Home() {
-  const [slide, setSlide] = useState(0);
-  const [mode, setMode] = useState<"plan" | "agent" | "live" | null>(null);
-
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
   const [livedays, setLiveDays] = useState<Day[]>([]);
   const [activeDay, setActiveDay] = useState(0);
@@ -168,25 +133,12 @@ export default function Home() {
   });
 
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
-  const [heroIdx, setHeroIdx] = useState(0);
   const sessionId = useRef(generateSessionId());
-
-  const touchStartX = useRef(0);
-  const touchDeltaX = useRef(0);
-  const isDragging = useRef(false);
-  const trackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setInterval(() => setPlaceholderIdx((p) => (p + 1) % PLACEHOLDERS.length), 2200);
     return () => clearInterval(t);
   }, []);
-
-  // Cycle the living backdrop through hero destinations on the landing.
-  useEffect(() => {
-    if (mode !== null) return;
-    const t = setInterval(() => setHeroIdx((h) => (h + 1) % HERO_PLACES.length), 7000);
-    return () => clearInterval(t);
-  }, [mode]);
 
   useEffect(() => {
     const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
@@ -200,16 +152,6 @@ export default function Home() {
       })
       .catch(() => {});
   }, [userId]);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "ArrowRight") { e.preventDefault(); setSlide(s => Math.min(s + 1, TOTAL_SLIDES - 1)); }
-      if (e.key === "ArrowLeft") { e.preventDefault(); setSlide(s => Math.max(s - 1, 0)); }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   function toggleVibe(label: string) {
     setSelectedVibes((prev) =>
@@ -284,9 +226,8 @@ export default function Home() {
     );
   }
 
-  // ── Mode views ─────────────────────────────────────────────────────────────
-  if (mode === "plan") {
-    return <PlanTripView
+  return (
+    <PlanTripView
       city={city} setCity={setCity}
       days={days} setDays={setDays}
       selectedVibes={selectedVibes} toggleVibe={toggleVibe}
@@ -295,158 +236,8 @@ export default function Home() {
       pace={pace} setPace={setPace}
       placeholderIdx={placeholderIdx}
       loading={loading} error={error}
-      onBack={() => setMode(null)}
       onSubmit={handlePlan}
-    />;
-  }
-
-  if (mode === "agent") {
-    return <AgentView onBack={() => setMode(null)} />;
-  }
-
-  if (mode === "live") {
-    return <LiveView onBack={() => setMode(null)} />;
-  }
-
-  // ── Swipeable slides ────────────────────────────────────────────────────────
-  return (
-    <div
-      className="h-screen w-screen overflow-hidden relative select-none"
-      style={{ background: "#0a0a0a", touchAction: "pan-y" }}
-      onTouchStart={(e) => {
-        touchStartX.current = e.touches[0].clientX;
-        touchDeltaX.current = 0;
-        isDragging.current = true;
-        if (trackRef.current) trackRef.current.style.transition = "none";
-      }}
-      onTouchMove={(e) => {
-        if (!isDragging.current) return;
-        touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
-        if (trackRef.current) {
-          const base = -slide * window.innerWidth;
-          trackRef.current.style.transform = `translateX(${base + touchDeltaX.current}px)`;
-        }
-      }}
-      onTouchEnd={() => {
-        isDragging.current = false;
-        if (trackRef.current) {
-          trackRef.current.style.transition = "transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)";
-        }
-        if (Math.abs(touchDeltaX.current) > 60) {
-          if (touchDeltaX.current < 0) {
-            setSlide(s => Math.min(s + 1, TOTAL_SLIDES - 1));
-          } else {
-            setSlide(s => Math.max(s - 1, 0));
-          }
-        }
-      }}
-    >
-      {/* Inline keyframes */}
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
-        }
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
-      {/* ── Living photo backdrop (cycles through hero destinations) ── */}
-      <div className="absolute inset-0 z-0">
-        <LivingPhoto query={HERO_PLACES[heroIdx]} intensity={0.7} scrim={0.62} />
-      </div>
-
-      {/* Which place you're looking at */}
-      <div className="fixed top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 pointer-events-none">
-        <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, letterSpacing: "2px", textTransform: "uppercase" }}>
-          ✦ {HERO_PLACES[heroIdx]}
-        </span>
-      </div>
-
-      {/* ── Top bar ────────────────────────────────────────────── */}
-      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center h-14"
-        style={{ background: "rgba(10,10,10,0.85)", backdropFilter: "blur(20px)" }}>
-        <span className="text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
-          naviro
-        </span>
-      </div>
-
-      {/* ── Slide track ──────────────────────────────────────── */}
-      <div
-        ref={trackRef}
-        className="flex h-full relative z-10"
-        style={{
-          transform: `translateX(-${slide * 100}vw)`,
-          transition: "transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-        }}
-      >
-        {SLIDES.map((s, i) => (
-          <section key={i} className="min-w-[100vw] h-full flex flex-col items-center justify-center px-8 relative">
-            <div className="max-w-sm w-full text-center relative z-10">
-              <p className="text-6xl mb-7" style={{ animation: "float 4s ease-in-out infinite", filter: "drop-shadow(0 4px 16px rgba(0,0,0,0.5))" }}>
-                {s.emoji}
-              </p>
-              <h2 className="text-3xl font-semibold mb-3" style={{ color: "#fff", letterSpacing: "-0.5px", textShadow: "0 2px 24px rgba(0,0,0,0.6)" }}>
-                {s.title}
-              </h2>
-              <p className="text-sm leading-relaxed mb-12" style={{ color: "rgba(255,255,255,0.78)", textShadow: "0 1px 16px rgba(0,0,0,0.7)" }}>
-                {s.desc[0]}<br />{s.desc[1]}
-              </p>
-              <button
-                onClick={() => setMode(s.mode)}
-                className="px-10 py-3.5 rounded-full text-sm font-medium transition-all duration-200"
-                style={{ background: "#fff", color: "#000", boxShadow: "0 8px 30px rgba(0,0,0,0.35)" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "scale(1.03)";
-                  e.currentTarget.style.boxShadow = "0 0 24px rgba(255,255,255,0.25)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.boxShadow = "0 8px 30px rgba(0,0,0,0.35)";
-                }}
-              >
-                {s.cta}
-              </button>
-            </div>
-          </section>
-        ))}
-      </div>
-
-      {/* ── Bottom nav ────────────────────────────────────────── */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4">
-        <button
-          onClick={() => setSlide(s => Math.max(s - 1, 0))}
-          className="w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200"
-          style={{ color: slide === 0 ? "#111" : "#555", background: slide === 0 ? "transparent" : "rgba(255,255,255,0.03)" }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-        <div className="flex items-center gap-2 px-3 py-2 rounded-full" style={{ background: "rgba(255,255,255,0.03)" }}>
-          {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setSlide(i)}
-              className="transition-all duration-300"
-              style={{
-                width: i === slide ? 20 : 6,
-                height: 4,
-                borderRadius: 2,
-                background: i === slide ? "#fff" : "#1a1a1a",
-              }}
-            />
-          ))}
-        </div>
-        <button
-          onClick={() => setSlide(s => Math.min(s + 1, TOTAL_SLIDES - 1))}
-          className="w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200"
-          style={{ color: slide === TOTAL_SLIDES - 1 ? "#111" : "#555", background: slide === TOTAL_SLIDES - 1 ? "transparent" : "rgba(255,255,255,0.03)" }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
-        </button>
-      </div>
-    </div>
+    />
   );
 }
 
@@ -455,7 +246,7 @@ export default function Home() {
 function PlanTripView({
   city, setCity, days, setDays, selectedVibes, toggleVibe,
   travelStyle, setTravelStyle, budget, setBudget, pace, setPace,
-  placeholderIdx, loading, error, onBack, onSubmit,
+  placeholderIdx, loading, error, onSubmit,
 }: {
   city: string; setCity: (v: string) => void;
   days: string; setDays: (v: string) => void;
@@ -464,7 +255,7 @@ function PlanTripView({
   budget: string; setBudget: (v: string) => void;
   pace: string; setPace: (v: string) => void;
   placeholderIdx: number; loading: boolean; error: string;
-  onBack: () => void; onSubmit: () => void;
+  onSubmit: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [bgQuery, setBgQuery] = useState(city.trim() || "India travel landscape");
@@ -498,19 +289,11 @@ function PlanTripView({
       <div className="relative z-10">
 
       {/* Top bar */}
-      <div className="sticky top-0 z-50 flex items-center h-14 px-6"
+      <div className="sticky top-0 z-50 flex items-center justify-center h-14 px-6"
         style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-        <button onClick={onBack} className="flex items-center gap-1.5 text-sm transition-all"
-          style={{ color: "#444" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "#888"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "#444"; }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-          Back
-        </button>
-        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
+        <span className="text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
           naviro
         </span>
-        <div style={{ width: 60 }} />
       </div>
 
       <div className="max-w-md mx-auto px-6 pt-8 pb-12">
@@ -700,58 +483,6 @@ function PlanTripView({
         </div>
       </div>
       </div>
-    </div>
-  );
-}
-
-
-// ─── Agent View (placeholder) ─────────────────────────────────────────────────
-function AgentView({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0a" }}>
-      <div className="sticky top-0 z-50 flex items-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-        <button onClick={onBack} className="flex items-center gap-1.5 text-sm" style={{ color: "#444" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-          Back
-        </button>
-        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>naviro agent</span>
-        <div style={{ width: 60 }} />
-      </div>
-      <div className="flex-1 flex items-center justify-center px-8">
-        <div className="text-center space-y-5">
-          <p className="text-4xl" style={{ animation: "float 4s ease-in-out infinite" }}>🤖</p>
-          <h2 className="text-2xl font-semibold" style={{ color: "#fff" }}>AI Agent</h2>
-          <p className="text-sm" style={{ color: "#3a3a3a" }}>Coming soon — conversational trip planning</p>
-        </div>
-      </div>
-      <style>{`@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }`}</style>
-    </div>
-  );
-}
-
-
-// ─── Live View (placeholder) ──────────────────────────────────────────────────
-function LiveView({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0a" }}>
-      <div className="sticky top-0 z-50 flex items-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-        <button onClick={onBack} className="flex items-center gap-1.5 text-sm" style={{ color: "#444" }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
-          Back
-        </button>
-        <span className="flex-1 text-center text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>naviro live</span>
-        <div style={{ width: 60 }} />
-      </div>
-      <div className="flex-1 flex items-center justify-center px-8">
-        <div className="text-center space-y-5">
-          <p className="text-4xl" style={{ animation: "float 4s ease-in-out infinite" }}>📍</p>
-          <h2 className="text-2xl font-semibold" style={{ color: "#fff" }}>Live Mode</h2>
-          <p className="text-sm" style={{ color: "#3a3a3a" }}>Coming soon — real-time travel assistance</p>
-        </div>
-      </div>
-      <style>{`@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }`}</style>
     </div>
   );
 }

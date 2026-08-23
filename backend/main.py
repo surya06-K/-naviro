@@ -268,6 +268,7 @@ def get_session_history(session_id: str) -> list[dict[str, str]]:
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 GOOGLE_GEOCODE_URL  = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_PLACES_URL   = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+GOOGLE_PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 _NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "1") or "1")
 _nominatim_semaphore = asyncio.Semaphore(_NOMINATIM_CONCURRENCY)
@@ -428,6 +429,49 @@ async def geocode_place(
             continue
         return coords
     return {"lat": 0.0, "lng": 0.0}
+
+
+async def _places_nearby(
+    client: httpx.AsyncClient, lat: float, lng: float, place_type: str, limit: int = 2
+) -> list[dict]:
+    """Real, verifiable results only — returns [] on any failure rather than
+    inventing a placeholder. Used for emergency info, where a wrong address is
+    worse than no address. No Nominatim fallback: OpenStreetMap has no
+    equivalent "find hospitals near this point" category search."""
+    if not GOOGLE_MAPS_API_KEY:
+        return []
+    try:
+        resp = await client.get(
+            GOOGLE_PLACES_NEARBY_URL,
+            params={
+                "location": f"{lat},{lng}",
+                "radius": 5000,
+                "type": place_type,
+                "key": GOOGLE_MAPS_API_KEY,
+            },
+            timeout=8.0,
+        )
+        data = resp.json()
+        if data.get("status") != "OK":
+            logger.warning("Places nearby search (%s) status=%s", place_type, data.get("status"))
+            return []
+        results = []
+        for place in data.get("results", [])[:limit]:
+            name = place.get("name", "")
+            place_id = place.get("place_id", "")
+            if not name or not place_id:
+                continue
+            results.append(
+                {
+                    "name": name,
+                    "address": place.get("vicinity") or "Address unavailable — see map",
+                    "maps_url": f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+                }
+            )
+        return results
+    except Exception as e:
+        logger.warning("Places nearby search (%s) error: %s", place_type, e)
+        return []
 
 
 def _find_slots_outside_radius(itinerary: dict, city_center: dict) -> list[dict]:
@@ -694,19 +738,28 @@ class ItineraryDraft(BaseModel):
 
 
 class EmergencyContact(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=200)
-    address: str = Field(min_length=1, max_length=500)
-    phone: str = Field(min_length=1, max_length=80)
+    name: str
+    address: str
+    maps_url: str
 
 
 class EmergencyInfo(BaseModel):
+    # Sourced from Google Places Nearby Search + a hardcoded national number,
+    # not the LLM — a fabricated hospital address or phone number is the one
+    # category of wrong answer that can hurt someone. hospitals/police_station
+    # are empty/None (never invented) when Places is unavailable; the frontend
+    # shows an honest "couldn't verify" state in that case.
+    emergency_number: str
+    hospitals: list[EmergencyContact]
+    police_station: Optional[EmergencyContact]
+    safety_tips: list[str]
+
+
+class SafetyTipsResponse(BaseModel):
+    # The one part of this panel that's still LLM-generated — subjective,
+    # destination-specific advice, not a verifiable fact like an address.
     model_config = ConfigDict(extra="forbid")
-    emergency_number: str = Field(min_length=1, max_length=80)
-    hospitals: list[EmergencyContact] = Field(min_length=1, max_length=3)
-    police_station: EmergencyContact
-    embassy: EmergencyContact
-    safety_tips: list[str] = Field(min_length=1, max_length=5)
+    safety_tips: list[str] = Field(min_length=2, max_length=4)
 
 
 class LiveSuggestion(BaseModel):
@@ -737,8 +790,10 @@ class ReplanResponseDraft(BaseModel):
 # would be wasted work for a schema that never changes at runtime.
 ITINERARY_DRAFT_SCHEMA = ItineraryDraft.model_json_schema()
 REPLAN_DRAFT_SCHEMA = ReplanResponseDraft.model_json_schema()
-EMERGENCY_INFO_SCHEMA = EmergencyInfo.model_json_schema()
+SAFETY_TIPS_SCHEMA = SafetyTipsResponse.model_json_schema()
 LIVE_RESPONSE_SCHEMA = LiveResponse.model_json_schema()
+
+INDIA_EMERGENCY_NUMBER = "112"  # National unified emergency number (police/fire/ambulance)
 
 
 def parse_llm_json(raw_response: str, expected_type: type[BaseModel]) -> BaseModel:
@@ -813,35 +868,53 @@ class EmergencyRequest(BaseModel):
 
 @app.post("/api/emergency", response_model=EmergencyInfo)
 async def emergency_info(request: EmergencyRequest):
-    if llm is None:
-        raise HTTPException(status_code=500, detail="LLM not configured")
-    # NOTE: this is still LLM-generated, including phone numbers — an invented
-    # emergency number is the one category of wrong answer that can hurt someone.
-    # Flagged for grounding in real Places/government data in a follow-up pass;
-    # not fixed here since this change is scoped to the model migration only.
-    prompt = (
-        f'You are a travel safety assistant. For the destination "{request.destination}" '
-        f'in "{request.country}", provide: the local police/emergency phone number, '
-        f"2-3 nearby hospitals with real names and addresses, the nearest police station, "
-        f"embassy or high commission details (only relevant for international travel — "
-        f"use India's own emergency services if the destination is within India), and "
-        f"3 specific, practical safety tips for this destination. Be accurate — do not "
-        f"invent a detail you are not confident about; prefer a well-known, findable "
-        f"landmark over a fabricated address."
-    )
+    hospitals: list[dict] = []
+    police: list[dict] = []
     try:
-        return await _generate_and_validate(
-            [{"role": "system", "content": prompt}],
-            schema_name="emergency_info",
-            schema=EMERGENCY_INFO_SCHEMA,
-            model=EmergencyInfo,
-        )
-    except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
-        logger.warning("Rejected invalid emergency response for %s", request.destination)
-        raise HTTPException(status_code=502, detail="Safety information is unavailable right now. Please use local emergency services.")
+        async with httpx.AsyncClient() as client:
+            city_center = await geocode_city_center(client, request.destination)
+            if city_center["lat"] != 0.0 or city_center["lng"] != 0.0:
+                hospitals, police = await asyncio.gather(
+                    _places_nearby(client, city_center["lat"], city_center["lng"], "hospital"),
+                    _places_nearby(client, city_center["lat"], city_center["lng"], "police", limit=1),
+                )
     except Exception:
-        logger.exception("Error in /api/emergency")
-        raise HTTPException(status_code=500, detail="Safety information is unavailable right now. Please use local emergency services.")
+        logger.exception("Error looking up hospitals/police for %s", request.destination)
+
+    # Generic, always-true fallback tips if the LLM call below fails or isn't configured —
+    # better than an empty panel, and nothing here is destination-specific enough to be wrong.
+    safety_tips = [
+        f"Save {INDIA_EMERGENCY_NUMBER} (India's unified emergency number) in your phone before you set out.",
+        "Share your live location with someone you trust while travelling.",
+    ]
+    if llm is not None:
+        try:
+            tips_result = await _generate_and_validate(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            f'Give 3 specific, practical safety tips for a traveller visiting '
+                            f'"{request.destination}", India. Avoid generic advice like "stay alert" '
+                            f"or \"keep your belongings safe\" — be concrete: a specific area or time "
+                            f"to be careful, a common local scam, or a transport safety note."
+                        ),
+                    }
+                ],
+                schema_name="safety_tips",
+                schema=SAFETY_TIPS_SCHEMA,
+                model=SafetyTipsResponse,
+            )
+            safety_tips = tips_result.safety_tips
+        except Exception:
+            logger.warning("Safety tips generation failed for %s; using generic fallback", request.destination)
+
+    return EmergencyInfo(
+        emergency_number=INDIA_EMERGENCY_NUMBER,
+        hospitals=[EmergencyContact(**h) for h in hospitals],
+        police_station=EmergencyContact(**police[0]) if police else None,
+        safety_tips=safety_tips,
+    )
 
 
 # ── User Preferences (Memory) ──────────────────────────────────────────────────
@@ -1000,529 +1073,3 @@ Rules:
     except Exception:
         logger.exception("Error in /api/replan")
         raise HTTPException(status_code=500, detail="Naviro could not replan your trip right now. Please try again.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# REAL-TIME TRANSPORT DIRECTIONS
-# ══════════════════════════════════════════════════════════════════════════════
-
-GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
-
-# ── Auto-rickshaw meter rates by city (2024-25) ───────────────────────────────
-# Source: respective RTA published rates
-AUTO_METER: dict[str, dict] = {
-    "hyderabad":   {"base_fare": 25, "base_km": 1.8, "per_km": 14, "note": "TSRTC city"},
-    "secunderabad":{"base_fare": 25, "base_km": 1.8, "per_km": 14, "note": ""},
-    "warangal":    {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
-    "vijayawada":  {"base_fare": 25, "base_km": 1.5, "per_km": 13, "note": "APSRTC city"},
-    "visakhapatnam":{"base_fare": 25,"base_km": 1.5, "per_km": 13, "note": ""},
-    "bengaluru":   {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": "BMTC city"},
-    "bangalore":   {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": ""},
-    "mysuru":      {"base_fare": 25, "base_km": 2.0, "per_km": 14, "note": ""},
-    "mysore":      {"base_fare": 25, "base_km": 2.0, "per_km": 14, "note": ""},
-    "mangaluru":   {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
-    "chennai":     {"base_fare": 25, "base_km": 1.8, "per_km": 12, "note": "MTC city"},
-    "coimbatore":  {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
-    "madurai":     {"base_fare": 20, "base_km": 1.5, "per_km": 12, "note": ""},
-    "tiruchirappalli":{"base_fare": 20,"base_km":1.5,"per_km": 11, "note": ""},
-    "kochi":       {"base_fare": 30, "base_km": 2.0, "per_km": 14, "note": "KSRTC city"},
-    "thiruvananthapuram":{"base_fare":25,"base_km":1.5,"per_km":13,"note":""},
-    "kozhikode":   {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
-    "mumbai":      {"base_fare": 21, "base_km": 1.5, "per_km": 14, "note": "BEST city"},
-    "pune":        {"base_fare": 21, "base_km": 1.5, "per_km": 13, "note": ""},
-    "nagpur":      {"base_fare": 20, "base_km": 1.5, "per_km": 12, "note": ""},
-    "delhi":       {"base_fare": 25, "base_km": 1.5, "per_km":  9, "note": "DTC city"},
-    "gurgaon":     {"base_fare": 25, "base_km": 1.5, "per_km": 10, "note": ""},
-    "noida":       {"base_fare": 25, "base_km": 1.5, "per_km": 10, "note": ""},
-    "kolkata":     {"base_fare": 30, "base_km": 2.0, "per_km": 12, "note": ""},
-    "ahmedabad":   {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
-    "surat":       {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
-    "jaipur":      {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
-    "lucknow":     {"base_fare": 25, "base_km": 1.5, "per_km": 11, "note": ""},
-    "bhopal":      {"base_fare": 20, "base_km": 1.5, "per_km": 10, "note": ""},
-    "indore":      {"base_fare": 20, "base_km": 1.5, "per_km": 10, "note": ""},
-    "chandigarh":  {"base_fare": 25, "base_km": 1.5, "per_km": 12, "note": ""},
-    "goa":         {"base_fare": 30, "base_km": 2.0, "per_km": 15, "note": "Pre-paid recommended"},
-    "default":     {"base_fare": 25, "base_km": 1.8, "per_km": 13, "note": ""},
-}
-
-# ── Rapido bike-taxi rates (2024-25) ─────────────────────────────────────────
-# Operates in 100+ Indian cities. Fastest in congested city traffic.
-RAPIDO_CITIES: set[str] = {
-    "hyderabad", "secunderabad", "bengaluru", "bangalore", "chennai",
-    "kochi", "mysuru", "mysore", "coimbatore", "madurai", "visakhapatnam",
-    "vijayawada", "warangal", "mangaluru", "thiruvananthapuram", "kozhikode",
-    "tiruchirappalli", "tirupati", "vellore", "salem",
-    "delhi", "gurgaon", "noida", "kolkata", "pune", "mumbai", "jaipur",
-    "ahmedabad", "chandigarh", "lucknow", "patna", "bhubaneswar", "guwahati",
-    "bhopal", "indore", "nagpur", "surat", "agra", "meerut", "varanasi",
-}
-
-RAPIDO_RATES: dict[str, dict] = {
-    "hyderabad":  {"base": 25, "base_km": 1.5, "per_km": 7},
-    "secunderabad": {"base": 25, "base_km": 1.5, "per_km": 7},
-    "bengaluru":  {"base": 35, "base_km": 2.0, "per_km": 9},
-    "bangalore":  {"base": 35, "base_km": 2.0, "per_km": 9},
-    "chennai":    {"base": 30, "base_km": 1.5, "per_km": 8},
-    "delhi":      {"base": 25, "base_km": 1.5, "per_km": 8},
-    "mumbai":     {"base": 35, "base_km": 2.0, "per_km": 9},
-    "kolkata":    {"base": 25, "base_km": 1.5, "per_km": 7},
-    "kochi":      {"base": 30, "base_km": 1.5, "per_km": 8},
-    "pune":       {"base": 30, "base_km": 1.5, "per_km": 8},
-    "jaipur":     {"base": 25, "base_km": 1.5, "per_km": 7},
-    "default":    {"base": 30, "base_km": 1.5, "per_km": 8},
-}
-
-# ── Cities where share-autos operate on fixed routes ─────────────────────────
-SHARE_AUTO_CITIES: set[str] = {
-    "hyderabad", "secunderabad", "chennai", "bengaluru", "bangalore",
-    "coimbatore", "madurai", "vijayawada", "visakhapatnam", "kochi",
-    "thiruvananthapuram", "kozhikode", "tiruchirappalli", "tirupati",
-    "mysuru", "mysore", "mangaluru",
-}
-
-# ── Ferry / boat routes by city ───────────────────────────────────────────────
-FERRY_CITIES: dict[str, str] = {
-    "mumbai":       "BEST Ferry (Gateway ↔ Elephanta, ~₹200 return). Mandwa ferry for Alibaug. Ferry terminal at Apollo Bunder.",
-    "kochi":        "Kochi Water Metro + KSWTD public ferries. Ernakulam → Fort Kochi in ~10 min, ₹5–20. Very reliable.",
-    "goa":          "Government ferries cross Mandovi & Zuari rivers — free for pedestrians. Panaji ferry to Betim is famous.",
-    "varanasi":     "Row boats & motor boats on the Ganga ghats. ₹100–200 for ghat tours. Non-motorised boats available at dawn.",
-    "alappuzha":    "KSWTD public ferries + private houseboats. Ferry to Kottayam ~₹15. Water bus from Alappuzha Boat Jetty.",
-    "alleppey":     "KSWTD public ferries + private houseboats. Ferry to Kottayam ~₹15. Water bus from Alappuzha Boat Jetty.",
-    "kolkata":      "Hooghly River Hooghly Ferry Services. Babughat to Howrah in ~15 min, ₹5. Also: Millennium Park to Belur Math.",
-    "mandapam":     "Ferry to Rameswaram via Pamban Island. Check Tamil Nadu Maritime Board for schedule.",
-    "srinagar":     "Shikara rides on Dal Lake — iconic and practical. ₹30–60 for short rides. Also connects houseboats.",
-}
-
-# ── E-rickshaw / Toto availability by city ───────────────────────────────────
-ERICKSHAW_CITIES: dict[str, str] = {
-    "delhi":      "E-rickshaws (e-rikshaw) run feeder routes near metro stations. ₹10–30 shared, ₹30–70 private.",
-    "noida":      "Very common near metro exits. ₹10–25 shared.",
-    "gurgaon":    "Available near metro feeder routes. ₹20–50.",
-    "kolkata":    "Toto (e-rickshaw) very common, especially in suburban areas. ₹10–30 per trip.",
-    "patna":      "Widely available across the city. ₹20–50 for short trips.",
-    "lucknow":    "Available near main roads and railway station areas. ₹20–40.",
-    "agra":       "Common around tourist areas — Taj Ganj, Fatehabad Rd. ₹30–80.",
-    "varanasi":   "Common feeder to ghats and old city lanes. ₹20–50.",
-    "bhubaneswar":"Very common. ₹20–40 per trip.",
-    "guwahati":   "Available near Paltan Bazaar and major junctions. ₹20–40.",
-    "bhopal":     "Available near ISBT and major areas. ₹20–40.",
-    "meerut":     "Very common. ₹10–30 shared.",
-    "allahabad":  "Common around Prayagraj station and ghats. ₹20–40.",
-    "prayagraj":  "Common around station and ghats. ₹20–40.",
-}
-
-# ── City bus fallback notes (when no GTFS transit data) ──────────────────────
-CITY_BUS_NOTES: dict[str, str] = {
-    "hyderabad":  "TSRTC buses cover the whole city (₹10–30). Check TSRTC app or MetroRail + bus combo.",
-    "secunderabad": "TSRTC buses + MMTS train. Check TSRTC app.",
-    "bengaluru":  "BMTC buses extensive. Check BMTC app or Namma Metro + bus combo. Fare ₹5–30.",
-    "bangalore":  "BMTC buses extensive. Check BMTC app or Namma Metro + bus combo. Fare ₹5–30.",
-    "chennai":    "MTC buses very affordable (₹5–25). Check MTC website for route numbers.",
-    "mumbai":     "BEST buses frequent across the city (₹5–30). Check BEST app or m-Indicator app.",
-    "delhi":      "DTC + cluster buses cover most areas (₹5–25). Delhi Transit app has real-time tracking.",
-    "kochi":      "KSRTC city buses + private buses. Fare ~₹10–30. Complements the Water Metro.",
-    "kolkata":    "CTC + private buses (₹7–20). Kolkata Metro is often faster for long routes.",
-    "pune":       "PMPML buses (₹5–25). Check PMPML app.",
-    "ahmedabad":  "BRTS (Bus Rapid Transit) + AMTS buses (₹5–25). Very frequent on BRT corridors.",
-    "jaipur":     "City buses (₹10–25) + Jaipur Metro. Check JMC transport website.",
-    "surat":      "BRTS buses excellent (₹5–15). Very punctual on BRT routes.",
-    "bhopal":     "BRTS + city buses (₹7–25). Check BCLL transport.",
-    "indore":     "iBus (₹7–25). Indore has one of India's best city bus systems.",
-}
-
-# ── Cab fare estimates (Ola Mini / Uber Go approximate) ───────────────────────
-CAB_RATES: dict[str, dict] = {
-    "bengaluru": {"base": 50, "per_km": 13, "surge_max": 1.8},
-    "bangalore": {"base": 50, "per_km": 13, "surge_max": 1.8},
-    "hyderabad": {"base": 45, "per_km": 11, "surge_max": 1.6},
-    "chennai":   {"base": 45, "per_km": 12, "surge_max": 1.6},
-    "mumbai":    {"base": 55, "per_km": 14, "surge_max": 2.0},
-    "delhi":     {"base": 50, "per_km": 11, "surge_max": 1.8},
-    "kolkata":   {"base": 40, "per_km": 10, "surge_max": 1.5},
-    "pune":      {"base": 45, "per_km": 12, "surge_max": 1.6},
-    "kochi":     {"base": 50, "per_km": 13, "surge_max": 1.5},
-    "default":   {"base": 49, "per_km": 12, "surge_max": 1.7},
-}
-
-
-def _auto_fare(distance_km: float, city: str) -> str:
-    key = city.lower().strip()
-    rates = AUTO_METER.get(key, AUTO_METER["default"])
-    if distance_km <= rates["base_km"]:
-        fare = rates["base_fare"]
-    else:
-        fare = rates["base_fare"] + (distance_km - rates["base_km"]) * rates["per_km"]
-    # ±20% range to account for traffic, minor detours, night charges
-    return f"₹{int(fare * 0.9)}–{int(fare * 1.2)}"
-
-
-def _cab_fare(distance_km: float, city: str) -> str:
-    key = city.lower().strip()
-    rates = CAB_RATES.get(key, CAB_RATES["default"])
-    base_fare = rates["base"] + distance_km * rates["per_km"]
-    low = int(base_fare * 0.9)
-    high = int(base_fare * rates["surge_max"])
-    return f"₹{low}–{high}"
-
-
-def _rapido_fare(distance_km: float, city: str) -> str:
-    key = city.lower().strip()
-    rates = RAPIDO_RATES.get(key, RAPIDO_RATES["default"])
-    if distance_km <= rates["base_km"]:
-        fare = rates["base"]
-    else:
-        fare = rates["base"] + (distance_km - rates["base_km"]) * rates["per_km"]
-    return f"₹{int(fare * 0.9)}–{int(fare * 1.15)}"
-
-
-def _strip_html(text: str) -> str:
-    """Remove HTML tags from Google Directions step instructions."""
-    return re.sub(r"<[^>]+>", " ", text).replace("  ", " ").strip()
-
-
-def _parse_transit_leg(leg: dict) -> Optional[dict]:
-    """Convert a Google Directions transit leg into Naviro's transport option format."""
-    steps_out: list[dict] = []
-    transit_modes: set[str] = set()
-    agencies: set[str] = set()
-
-    for step in leg.get("steps", []):
-        mode = step.get("travel_mode", "")
-        if mode == "WALKING":
-            dist = step.get("distance", {}).get("text", "")
-            dur  = step.get("duration", {}).get("text", "")
-            instr = _strip_html(step.get("html_instructions", "Walk"))
-            steps_out.append({"type": "walk", "instruction": instr,
-                               "duration": dur, "distance": dist})
-        elif mode == "TRANSIT":
-            td      = step.get("transit_details", {})
-            line    = td.get("line", {})
-            vehicle = line.get("vehicle", {})
-            v_type  = vehicle.get("type", "BUS")
-            transit_modes.add(v_type)
-            for ag in line.get("agencies", []):
-                agencies.add(ag.get("name", ""))
-
-            dep_time = td.get("departure_time", {})
-            arr_time = td.get("arrival_time", {})
-
-            steps_out.append({
-                "type":           "transit",
-                "vehicle_type":   v_type,
-                "line":           line.get("short_name") or line.get("name", ""),
-                "line_full_name": line.get("name", ""),
-                "agency":         ", ".join(agencies) or "Transit",
-                "headsign":       td.get("headsign", ""),
-                "from_stop":      td.get("departure_stop", {}).get("name", ""),
-                "to_stop":        td.get("arrival_stop", {}).get("name", ""),
-                "departure_time": dep_time.get("text", ""),
-                "arrival_time":   arr_time.get("text", ""),
-                "num_stops":      td.get("num_stops", 0),
-                "is_realtime":    bool(dep_time.get("value")),
-            })
-
-    if not steps_out:
-        return None
-
-    # Pick icon + label for primary vehicle type
-    if transit_modes & {"SUBWAY", "METRO_RAIL", "TRAM"}:
-        icon, label = "🚇", "Metro"
-    elif transit_modes & {"HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN", "RAIL"}:
-        icon, label = "🚆", "Train"
-    else:
-        icon  = "🚌"
-        label = ", ".join(agencies) if agencies else "Bus"
-
-    # Google Directions API sometimes returns fare
-    fare_text = ""
-    if leg.get("fare"):
-        fare_text = leg["fare"].get("text", "")
-
-    return {
-        "mode":         "transit",
-        "icon":         icon,
-        "label":        label,
-        "duration":     leg.get("duration", {}).get("text", ""),
-        "fare_estimate": fare_text or "Check at boarding point",
-        "agencies":     list(agencies),
-        "is_realtime":  any(
-            s.get("is_realtime") for s in steps_out if s.get("type") == "transit"
-        ),
-        "steps": steps_out,
-    }
-
-
-# ── Request model ─────────────────────────────────────────────────────────────
-class DirectionsRequest(BaseModel):
-    origin_text:     str   = ""    # user-typed location (optional if coords given)
-    origin_lat:      float = 0.0   # from GPS (optional)
-    origin_lng:      float = 0.0   # from GPS (optional)
-    destination_name: str          # place name (for display + Ola/Uber links)
-    destination_lat:  float        # from slot coordinates
-    destination_lng:  float
-    city:            str           # destination city (for fare table lookup)
-
-
-@app.post("/api/directions")
-async def get_directions(req: DirectionsRequest):
-    if not GOOGLE_MAPS_API_KEY:
-        raise HTTPException(
-            status_code=400,
-            detail="Google Maps API key is not configured. Add GOOGLE_MAPS_API_KEY to your Railway environment variables.",
-        )
-
-    async with httpx.AsyncClient() as client:
-
-        # ── Resolve origin coordinates ────────────────────────────────────────
-        if req.origin_lat != 0.0 and req.origin_lng != 0.0:
-            origin_coords = (req.origin_lat, req.origin_lng)
-        elif req.origin_text.strip():
-            geocoded = await geocode_place(
-                client,
-                req.origin_text.strip(),
-                req.city,
-                {"lat": req.destination_lat, "lng": req.destination_lng},
-            )
-            if geocoded["lat"] == 0.0 and geocoded["lng"] == 0.0:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Couldn't find '{req.origin_text}'. Try being more specific — add the city name.",
-                )
-            origin_coords = (geocoded["lat"], geocoded["lng"])
-        else:
-            raise HTTPException(status_code=400, detail="Provide either GPS coordinates or a location name.")
-
-        origin_str = f"{origin_coords[0]},{origin_coords[1]}"
-        dest_str   = f"{req.destination_lat},{req.destination_lng}"
-        now_ts     = int(time.time())
-
-        # Always compute straight-line distance as fallback (used when driving API fails)
-        straight_km  = _distance_km(origin_coords[0], origin_coords[1], req.destination_lat, req.destination_lng)
-        estimated_km = straight_km * 1.35  # typical road:straight ratio
-
-        # ── Fire transit + driving + walking in parallel ──────────────────────
-        common_params = {"language": "en", "region": "in", "key": GOOGLE_MAPS_API_KEY}
-
-        transit_task = client.get(
-            GOOGLE_DIRECTIONS_URL,
-            params={**common_params, "origin": origin_str, "destination": dest_str,
-                    "mode": "transit", "alternatives": "true",
-                    "departure_time": now_ts, "transit_routing_preference": "fewer_transfers"},
-            timeout=10.0,
-        )
-        driving_task = client.get(
-            GOOGLE_DIRECTIONS_URL,
-            params={**common_params, "origin": origin_str, "destination": dest_str,
-                    "mode": "driving", "departure_time": now_ts},
-            timeout=10.0,
-        )
-        walking_task = client.get(
-            GOOGLE_DIRECTIONS_URL,
-            params={**common_params, "origin": origin_str, "destination": dest_str,
-                    "mode": "walking"},
-            timeout=10.0,
-        )
-
-        transit_resp, driving_resp, walking_resp = await asyncio.gather(
-            transit_task, driving_task, walking_task, return_exceptions=True
-        )
-
-        options: list[dict] = []
-        distance_km: float  = 0.0
-        driving_duration    = ""
-
-        # ── Parse transit routes ──────────────────────────────────────────────
-        if not isinstance(transit_resp, Exception):
-            t_data = transit_resp.json()
-            if t_data.get("status") == "OK":
-                seen_labels: set[str] = set()
-                for route in t_data.get("routes", [])[:3]:
-                    leg    = route["legs"][0]
-                    option = _parse_transit_leg(leg)
-                    if option and option["label"] not in seen_labels:
-                        options.append(option)
-                        seen_labels.add(option["label"])
-            elif t_data.get("status") == "ZERO_RESULTS":
-                logger.info("No transit routes found for this origin/destination pair.")
-            else:
-                logger.warning("Transit API status: %s", t_data.get("status"))
-
-        # ── Parse driving (used for auto + cab estimates) ─────────────────────
-        if not isinstance(driving_resp, Exception):
-            d_data = driving_resp.json()
-            if d_data.get("status") == "OK":
-                d_leg            = d_data["routes"][0]["legs"][0]
-                distance_km      = d_leg["distance"]["value"] / 1000
-                driving_duration = d_leg.get("duration_in_traffic", d_leg["duration"])["text"]
-            else:
-                logger.warning("Driving API status: %s — using haversine estimate", d_data.get("status"))
-
-        # Use real driving distance or haversine fallback for fare calculations
-        fare_km      = distance_km if distance_km > 0 else estimated_km
-        fare_dur_str = driving_duration if driving_duration else f"~{int(fare_km / 0.4)} min (est.)"
-
-        # Auto-rickshaw (always show — fares from official RTA rates)
-        options.append({
-            "mode":          "auto",
-            "icon":          "🛺",
-            "label":         "Auto-rickshaw",
-            "duration":      fare_dur_str,
-            "fare_estimate": _auto_fare(fare_km, req.city),
-            "note":          "Metered in most cities. Confirm fare before boarding. Night charges (10 PM–5 AM) are usually 1.5×."
-                             + ("" if distance_km > 0 else " (Fare based on straight-line estimate — actual may vary.)"),
-            "steps":         [],
-            "is_realtime":   False,
-        })
-
-        # Cab — Ola + Uber deep links (always show)
-        o_name    = quote(req.origin_text or "Current location")
-        d_name    = quote(req.destination_name)
-        ola_link  = (
-            f"https://book.olacabs.com/?pickup_lat={origin_coords[0]}"
-            f"&pickup_lng={origin_coords[1]}&pickup_name={o_name}"
-            f"&drop_lat={req.destination_lat}&drop_lng={req.destination_lng}"
-            f"&drop_name={d_name}&category=auto"
-        )
-        uber_link = (
-            f"https://m.uber.com/ul/?action=setPickup"
-            f"&pickup[latitude]={origin_coords[0]}&pickup[longitude]={origin_coords[1]}"
-            f"&pickup[nickname]={o_name}"
-            f"&dropoff[latitude]={req.destination_lat}&dropoff[longitude]={req.destination_lng}"
-            f"&dropoff[nickname]={d_name}"
-        )
-        options.append({
-            "mode":          "cab",
-            "icon":          "🚕",
-            "label":         "Cab",
-            "duration":      fare_dur_str,
-            "fare_estimate": _cab_fare(fare_km, req.city),
-            "note":          "Estimate only. Actual price shown in Ola/Uber app. May surge during peak hours.",
-            "ola_link":      ola_link,
-            "uber_link":     uber_link,
-            "steps":         [],
-            "is_realtime":   False,
-        })
-
-        # ── Parse walking (only show if ≤ 3 km) ──────────────────────────────
-        if not isinstance(walking_resp, Exception):
-            w_data = walking_resp.json()
-            if w_data.get("status") == "OK":
-                w_leg    = w_data["routes"][0]["legs"][0]
-                walk_km  = w_leg["distance"]["value"] / 1000
-                if walk_km <= 3.0:
-                    options.append({
-                        "mode":         "walk",
-                        "icon":         "🚶",
-                        "label":        "Walk",
-                        "duration":     w_leg["duration"]["text"],
-                        "fare_estimate": "Free",
-                        "distance":     f"{walk_km:.1f} km",
-                        "note":         "Use footpaths where available. Avoid walking in heavy traffic areas.",
-                        "steps":        [],
-                        "is_realtime":  False,
-                    })
-
-        city_lower = req.city.lower().strip()
-
-        # ── Rapido bike taxi ──────────────────────────────────────────────────
-        # Available in 100+ Indian cities. Fastest in congested city traffic.
-        if city_lower in RAPIDO_CITIES and fare_km <= 20.0:
-            options.append({
-                "mode":          "rapido",
-                "icon":          "🛵",
-                "label":         "Rapido Bike Taxi",
-                "duration":      fare_dur_str,
-                "fare_estimate": _rapido_fare(fare_km, req.city),
-                "note":          "Quickest & cheapest motorised option in city traffic. No surge pricing on short rides. Helmets provided.",
-                "rapido_link":   "https://rapido.bike/",
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        # ── Share auto (South India fixed-route autos) ────────────────────────
-        if city_lower in SHARE_AUTO_CITIES and fare_km <= 8.0:
-            options.append({
-                "mode":          "share_auto",
-                "icon":          "🚐",
-                "label":         "Share Auto",
-                "duration":      "Varies by route",
-                "fare_estimate": "₹10–25 per person",
-                "note":          "Flag one down on the main road heading your direction. No app needed — ask locals for the right route. Stops are near bus stands and main junctions.",
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        # ── E-rickshaw / Toto ─────────────────────────────────────────────────
-        if city_lower in ERICKSHAW_CITIES and fare_km <= 5.0:
-            options.append({
-                "mode":          "erickshaw",
-                "icon":          "⚡",
-                "label":         "E-Rickshaw / Toto",
-                "duration":      "Short trips only",
-                "fare_estimate": "₹20–50",
-                "note":          ERICKSHAW_CITIES[city_lower],
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        # ── Walk (straight-line fallback when API unavailable) ───────────────
-        # If walking API gave us a route, it's already added. Add estimate if short.
-        has_walk = any(o["mode"] == "walk" for o in options)
-        if not has_walk and straight_km <= 2.5:
-            walk_min = int(straight_km * 12)  # ~5 km/h walking speed
-            options.append({
-                "mode":          "walk",
-                "icon":          "🚶",
-                "label":         "Walk",
-                "duration":      f"~{walk_min} min (est.)",
-                "fare_estimate": "Free",
-                "distance":      f"{straight_km:.1f} km (straight-line)",
-                "note":          "Short enough to walk. Use Google Maps for exact footpath directions.",
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        # ── Ferry / Boat ──────────────────────────────────────────────────────
-        if city_lower in FERRY_CITIES:
-            options.append({
-                "mode":          "ferry",
-                "icon":          "⛴️",
-                "label":         "Ferry / Boat",
-                "duration":      "Varies by route",
-                "fare_estimate": "₹5–200",
-                "note":          FERRY_CITIES[city_lower],
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        # ── City bus fallback (when GTFS/transit data unavailable) ────────────
-        has_transit = any(o["mode"] == "transit" for o in options)
-        if not has_transit:
-            bus_note = CITY_BUS_NOTES.get(
-                city_lower,
-                "City buses likely operate on this route. Ask at the nearest bus stop or check the state RTC website for route numbers. Fare usually ₹5–30.",
-            )
-            options.append({
-                "mode":          "transit",
-                "icon":          "🚌",
-                "label":         "City Bus",
-                "duration":      "Varies",
-                "fare_estimate": "₹5–30",
-                "note":          bus_note,
-                "steps":         [],
-                "is_realtime":   False,
-            })
-
-        if not options:
-            raise HTTPException(
-                status_code=404,
-                detail="No transport options found. Make sure GOOGLE_MAPS_API_KEY has Directions API enabled.",
-            )
-
-        return {
-            "origin":      req.origin_text or "Your location",
-            "destination": req.destination_name,
-            "distance_km": round(fare_km, 1),
-            "options":     options,
-        }
