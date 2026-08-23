@@ -82,6 +82,14 @@ const PLACEHOLDERS = [
   "Any city in India…",
 ];
 
+// Rotating status copy shown on the submit button while a plan request is in flight.
+const PROGRESS_MESSAGES = [
+  "Reading your vibe…",
+  "Picking real spots…",
+  "Checking they're actually open…",
+  "Placing them on the map…",
+];
+
 // ─── Dynamic imports ──────────────────────────────────────────────────────────
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
@@ -96,14 +104,32 @@ function generateSessionId() {
   return "session-" + Math.random().toString(36).slice(2, 10);
 }
 
-function buildPrompt(city: string, days: string, vibes: string[], style: string, budget: string, pace: string): string {
+// Stop-count guidance per pace tier — must match the backend's enforced bounds exactly.
+const PACE_STOP_COUNTS: Record<string, string> = {
+  Relaxed: "Pace: relaxed (2-3 stops per day)",
+  Balanced: "Pace: balanced (3-4 stops per day)",
+  Packed: "Pace: packed (4-5 stops per day)",
+};
+
+function buildPrompt(
+  city: string,
+  days: string,
+  vibes: string[],
+  style: string,
+  budget: string,
+  pace: string,
+  pastDestinations: string[]
+): string {
   const parts: string[] = [];
   if (days) parts.push(`${days} day${days === "1" ? "" : "s"} in ${city}`);
   else parts.push(`Trip to ${city}`);
   if (vibes.length > 0) parts.push(`Interests: ${vibes.join(", ")}`);
   if (style) parts.push(style + " traveller");
   if (budget) parts.push(`Budget: ${budget}`);
-  if (pace) parts.push(`Pace: ${pace}`);
+  if (PACE_STOP_COUNTS[pace]) parts.push(PACE_STOP_COUNTS[pace]);
+  if (pastDestinations.length > 0) {
+    parts.push(`Traveler has previously planned trips with Naviro to: ${pastDestinations.join(", ")}`);
+  }
   return parts.join(". ") + ".";
 }
 
@@ -121,6 +147,7 @@ export default function Home() {
   const [travelStyle, setTravelStyle] = useState("");
   const [budget, setBudget] = useState("");
   const [pace, setPace] = useState("");
+  const [pastDestinations, setPastDestinations] = useState<string[]>([]);
 
   const [userId] = useState<string>(() => {
     if (typeof window === "undefined") return "anon";
@@ -133,12 +160,28 @@ export default function Home() {
   });
 
   const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [progressIdx, setProgressIdx] = useState(0);
   const sessionId = useRef(generateSessionId());
+  const lastMessageRef = useRef("");
 
   useEffect(() => {
     const t = setInterval(() => setPlaceholderIdx((p) => (p + 1) % PLACEHOLDERS.length), 2200);
     return () => clearInterval(t);
   }, []);
+
+  // Rotate through honest progress copy while a plan request is in flight. Clamp at the
+  // last message instead of wrapping — repeating "reading your vibe" after 20s of a real
+  // request would undercut the point of showing progress at all.
+  useEffect(() => {
+    if (!loading) {
+      setProgressIdx(0);
+      return;
+    }
+    const t = setInterval(() => {
+      setProgressIdx((p) => Math.min(p + 1, PROGRESS_MESSAGES.length - 1));
+    }, 3500);
+    return () => clearInterval(t);
+  }, [loading]);
 
   useEffect(() => {
     const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
@@ -149,6 +192,7 @@ export default function Home() {
         if (prefs.travel_style) setTravelStyle(prefs.travel_style);
         if (prefs.budget) setBudget(prefs.budget);
         if (prefs.pace) setPace(prefs.pace);
+        if (Array.isArray(prefs.past_destinations)) setPastDestinations(prefs.past_destinations);
       })
       .catch(() => {});
   }, [userId]);
@@ -160,8 +204,13 @@ export default function Home() {
   }
 
   async function callAPI(message: string) {
+    lastMessageRef.current = message;
     setLoading(true);
     setError("");
+    // Render free tier can cold-start; give a real request room to finish (p95 is
+    // 15-40s) while still recovering from a genuinely hung connection.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
     try {
       const rawApiUrl = process.env.NEXT_PUBLIC_API_URL;
       if (!rawApiUrl && process.env.NODE_ENV === "production") {
@@ -174,7 +223,8 @@ export default function Home() {
       const res = await fetch(`${apiUrl}/api/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId.current, message }),
+        body: JSON.stringify({ session_id: sessionId.current, message, destination: city.trim() || undefined }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const err = await res.json();
@@ -198,15 +248,24 @@ export default function Home() {
         setError("Couldn't build an itinerary. Try adding more detail.");
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error — make sure the backend is running");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("This is taking longer than usual — the server might be waking up from sleep. Try again in a moment.");
+      } else {
+        setError(e instanceof Error ? e.message : "Network error — make sure the backend is running");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }
 
   function handlePlan() {
     if (!city.trim() || loading) return;
-    callAPI(buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace));
+    callAPI(buildPrompt(city.trim(), days, selectedVibes, travelStyle, budget, pace, pastDestinations));
+  }
+
+  function handleRetry() {
+    if (lastMessageRef.current) callAPI(lastMessageRef.current);
   }
 
   // ── Map view ────────────────────────────────────────────────────────────────
@@ -235,8 +294,10 @@ export default function Home() {
       budget={budget} setBudget={setBudget}
       pace={pace} setPace={setPace}
       placeholderIdx={placeholderIdx}
+      progressIdx={progressIdx}
       loading={loading} error={error}
       onSubmit={handlePlan}
+      onRetry={handleRetry}
     />
   );
 }
@@ -246,7 +307,7 @@ export default function Home() {
 function PlanTripView({
   city, setCity, days, setDays, selectedVibes, toggleVibe,
   travelStyle, setTravelStyle, budget, setBudget, pace, setPace,
-  placeholderIdx, loading, error, onSubmit,
+  placeholderIdx, progressIdx, loading, error, onSubmit, onRetry,
 }: {
   city: string; setCity: (v: string) => void;
   days: string; setDays: (v: string) => void;
@@ -254,8 +315,8 @@ function PlanTripView({
   travelStyle: string; setTravelStyle: (v: string) => void;
   budget: string; setBudget: (v: string) => void;
   pace: string; setPace: (v: string) => void;
-  placeholderIdx: number; loading: boolean; error: string;
-  onSubmit: () => void;
+  placeholderIdx: number; progressIdx: number; loading: boolean; error: string;
+  onSubmit: () => void; onRetry: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [bgQuery, setBgQuery] = useState(city.trim() || "India travel landscape");
@@ -462,7 +523,19 @@ function PlanTripView({
         </div>
 
         {/* Error & Submit */}
-        {error && <p className="text-sm text-center mb-4" style={{ color: "#e55" }}>{error}</p>}
+        {error && (
+          <div className="text-center mb-4 space-y-2 fade-section">
+            <p className="text-sm" style={{ color: "#e55" }}>{error}</p>
+            <button
+              onClick={onRetry}
+              className="text-sm underline underline-offset-2 transition-colors duration-200"
+              style={{ color: "#888" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#fff"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}>
+              Try again
+            </button>
+          </div>
+        )}
 
         <div className="pb-10 fade-section" style={{ animationDelay: "0.35s" }}>
           <button onClick={onSubmit} disabled={!city.trim() || loading}
@@ -478,7 +551,7 @@ function PlanTripView({
               e.currentTarget.style.transform = "scale(1)";
               e.currentTarget.style.boxShadow = "none";
             }}>
-            {loading ? "Planning your trip…" : "Plan my trip →"}
+            {loading ? PROGRESS_MESSAGES[progressIdx] : "Plan my trip →"}
           </button>
         </div>
       </div>

@@ -19,6 +19,15 @@ interface Slot {
   estimated_cost: string;
   local_tip: string;
   coordinates: { lat: number; lng: number };
+  // Google Places verification signals — all optional: absent/null on older
+  // cached itineraries, when the Maps API key isn't configured, or when
+  // verification couldn't confirm a place even after one repair attempt.
+  place_id?: string | null;
+  rating?: number | null;
+  user_ratings_total?: number | null;
+  business_status?: string | null;
+  open_now?: boolean | null;
+  verified?: boolean;
 }
 
 interface Day {
@@ -66,30 +75,89 @@ function getTimeSlotIndex(timeOfDay: string | undefined, fallbackIndex: number) 
 }
 
 function getDisplayNumber(timeOfDay: string | undefined, fallbackIndex: number) {
-  return getTimeSlotIndex(timeOfDay, fallbackIndex) + 1;
+  // Sequential position within the day, not the time-of-day band. A day can
+  // have two slots in the same band (e.g. two "morning" stops), which must
+  // still get distinct numbers even though getTimeSlotIndex gives them the
+  // same pin color. fallbackIndex is always the slot's real index in
+  // day.slots at every call site, so it doubles as the display number.
+  return fallbackIndex + 1;
 }
 
 // ─── Calendar export helper ───────────────────────────────────────────────────
-function buildCalendarUrl(slot: Slot, dayNumber: number, destination: string): string {
+// India has no DST and sits at a fixed UTC+5:30, so every slot's clock time is
+// built as an explicit UTC instant offset by that amount — this is what makes
+// "9am" mean 9am India time in the exported event regardless of the visitor's
+// own browser/OS timezone, instead of drifting with wherever they happen to be.
+const IST_OFFSET_MINUTES = 5 * 60 + 30;
+
+function istWallClockToUTC(year: number, month: number, day: number, hour: number, minute: number): Date {
+  return new Date(Date.UTC(year, month, day, hour, minute) - IST_OFFSET_MINUTES * 60 * 1000);
+}
+
+// Google Calendar's dates= param must keep its trailing Z — that's what tells
+// it these are UTC instants to convert, rather than bare digits it renders
+// as-is. Stripping the Z (the previous bug) silently reinterpreted the UTC
+// clock digits as if they were already the viewer's local time, e.g. showing
+// a 9am IST plan at 3:30am instead.
+const fmtUTC = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+const SLOT_TIME_BANDS: Record<string, [number, number]> = {
+  morning: [9, 11],
+  afternoon: [13, 15],
+  evening: [18, 20],
+};
+
+function buildCalendarEvent(slot: Slot, dayNumber: number, destination: string) {
   const base = new Date();
   base.setDate(base.getDate() + 7 + dayNumber - 1);
-  const timeMap: Record<string, [number, number]> = {
-    morning: [9, 11],
-    afternoon: [13, 15],
-    evening: [18, 20],
-  };
-  const [startH, endH] = timeMap[slot.time_of_day.toLowerCase()] ?? [10, 11];
-  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0];
-  const start = new Date(base); start.setHours(startH, 0, 0, 0);
-  const end   = new Date(base); end.setHours(endH, 0, 0, 0);
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: slot.place_name,
-    dates: `${fmt(start)}/${fmt(end)}`,
-    details: `${slot.description}\n\n💡 Local tip: ${slot.local_tip}\n\n🚌 Getting there: ${slot.how_to_get_there}`,
+  const [startH, endH] = SLOT_TIME_BANDS[slot.time_of_day.toLowerCase()] ?? [10, 11];
+  const y = base.getFullYear(), m = base.getMonth(), d = base.getDate();
+  const start = istWallClockToUTC(y, m, d, startH, 0);
+  const end = istWallClockToUTC(y, m, d, endH, 0);
+  return {
+    summary: slot.place_name,
+    dates: `${fmtUTC(start)}/${fmtUTC(end)}`,
+    description: `${slot.description}\n\n💡 Local tip: ${slot.local_tip}\n\n🚌 Getting there: ${slot.how_to_get_there}`,
     location: `${slot.place_name}, ${destination}`,
-  });
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+}
+
+function icsEscape(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+
+// One .ics file covering every slot in the day, downloaded once — the previous
+// version opened one Google Calendar tab per slot via window.open(), which
+// browsers block as popups after the first.
+function downloadDayCalendar(slots: Slot[], dayNumber: number, destination: string) {
+  const events = slots.map((s) => buildCalendarEvent(s, dayNumber, destination));
+  const now = fmtUTC(new Date());
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Naviro//Trip Export//EN",
+    ...events.flatMap((e, i) => [
+      "BEGIN:VEVENT",
+      `UID:naviro-${dayNumber}-${i}-${now}@naviro`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${e.dates.split("/")[0]}`,
+      `DTEND:${e.dates.split("/")[1]}`,
+      `SUMMARY:${icsEscape(e.summary)}`,
+      `DESCRIPTION:${icsEscape(e.description)}`,
+      `LOCATION:${icsEscape(e.location)}`,
+      "END:VEVENT",
+    ]),
+    "END:VCALENDAR",
+  ];
+  const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `naviro-day-${dayNumber}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -370,9 +438,7 @@ export default function TravelMap({
             {/* Calendar export */}
             <div className="flex justify-end mt-2">
               <button
-                onClick={() => safeSlots.forEach((s) =>
-                  window.open(buildCalendarUrl(s, day?.day_number ?? 1, destination), "_blank")
-                )}
+                onClick={() => downloadDayCalendar(safeSlots, day?.day_number ?? 1, destination)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1c2128] border border-[#2d333b] text-[#8b949e] text-xs font-medium hover:border-[#484f58] hover:text-[#e6edf3] transition-colors"
               >
                 📅 Export Day {day?.day_number} to Calendar
@@ -536,6 +602,58 @@ export default function TravelMap({
                 <p className="text-[#4a8ab0] font-semibold mb-0.5">💡 Local tip</p>
                 <p className="text-[#8b949e]">{slot.local_tip}</p>
               </div>
+
+              {/* Evidence row — Google Places verification signals. Every field
+                  is optional: omit a pill rather than imply confidence (or
+                  doubt) the data doesn't support. */}
+              {(typeof slot.rating === "number" ||
+                typeof slot.open_now === "boolean" ||
+                slot.business_status === "CLOSED_PERMANENTLY" ||
+                slot.verified === false) && (
+                <div className="mb-3 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {typeof slot.rating === "number" && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#e6edf3]">
+                        ⭐ {slot.rating}{typeof slot.user_ratings_total === "number" && (
+                          <span className="text-[#8b949e] font-normal"> ({slot.user_ratings_total} reviews)</span>
+                        )}
+                      </span>
+                    )}
+
+                    {slot.open_now === true && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#8b949e]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+                        Open now
+                      </span>
+                    )}
+
+                    {slot.open_now === false && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#8b949e]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                        May be closed right now
+                      </span>
+                    )}
+
+                    {slot.business_status === "CLOSED_PERMANENTLY" && (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-900/30 border border-red-800/40 text-[11px] font-semibold text-red-400">
+                        ⚠️ Permanently closed
+                      </span>
+                    )}
+                  </div>
+
+                  {slot.open_now === false && (
+                    <p className="text-[#484f58] text-[11px] leading-snug">
+                      Reflects availability when this plan was generated — not a guarantee for whenever the trip actually happens.
+                    </p>
+                  )}
+
+                  {slot.verified === false && (
+                    <p className="text-[#484f58] text-[11px] leading-snug">
+                      📍 Approximate location — couldn&apos;t independently verify this spot.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Directions — plain Google Maps deep link, live turn-by-turn beats
                   an in-app fare estimate that goes stale the moment rates change */}

@@ -260,6 +260,534 @@ class ItineraryRepairTests(unittest.TestCase):
         self.assertEqual(info.hospitals, [])
         self.assertEqual(info.safety_tips, ["tip"])
 
+    # ── Session persistence survives a cold start (sessions are now backed by
+    # SQLite via database.py, with the in-memory `sessions` OrderedDict as a
+    # fast-path LRU cache in front of it — see get_session_history /
+    # save_session_history in main.py) ─────────────────────────────────────
+
+    def test_get_session_history_reloads_from_database_when_evicted_from_memory(self):
+        import tempfile
+        import os
+        import database
+        import main
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        session_id = "test-reload-from-db-session"
+        try:
+            database.init_db()
+            history = [
+                {"role": "system", "content": main.SYSTEM_PROMPT},
+                {"role": "user", "content": "Tokyo, 5 days, more food spots please"},
+            ]
+            database.save_session_history(session_id, history)
+
+            # Simulate a cold start / cache eviction: nothing for this session
+            # in the in-memory cache, even though the DB row exists.
+            main.sessions.pop(session_id, None)
+
+            reloaded = main.get_session_history(session_id)
+            self.assertEqual(reloaded, history)
+            # It should now be seeded into the in-memory cache too.
+            self.assertIn(session_id, main.sessions)
+            self.assertEqual(main.sessions[session_id], history)
+        finally:
+            main.sessions.pop(session_id, None)
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+
+    def test_save_session_history_then_load_round_trips(self):
+        import tempfile
+        import os
+        import database
+        import main
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        session_id = "test-round-trip-session"
+        try:
+            database.init_db()
+            history = [
+                {"role": "system", "content": main.SYSTEM_PROMPT},
+                {"role": "user", "content": "Jaipur, 3 days, budget trip"},
+                {"role": "assistant", "content": json.dumps({"destination": "Jaipur"})},
+            ]
+            # main.save_session_history is the wrapper the /api/plan handler
+            # calls after a successful turn; it should delegate to
+            # database.save_session_history under the hood.
+            main.save_session_history(session_id, history)
+
+            # A fresh load — not through the in-memory cache — should see
+            # exactly what was persisted.
+            reloaded = database.load_session_history(session_id)
+            self.assertEqual(reloaded, history)
+        finally:
+            main.sessions.pop(session_id, None)
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+
+    def test_get_session_history_seeds_fresh_system_prompt_when_absent_everywhere(self):
+        import tempfile
+        import os
+        import database
+        import main
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        session_id = "test-brand-new-session"
+        try:
+            database.init_db()
+            main.sessions.pop(session_id, None)  # guarantee it isn't already cached
+
+            history = main.get_session_history(session_id)
+            self.assertEqual(history, [{"role": "system", "content": main.SYSTEM_PROMPT}])
+            self.assertIn(session_id, main.sessions)
+            # A freshly-initialized history with no user turn yet is not worth
+            # a DB write — that only happens once the caller has something
+            # real to persist via save_session_history.
+            self.assertIsNone(database.load_session_history(session_id))
+        finally:
+            main.sessions.pop(session_id, None)
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+
+    def test_get_session_history_degrades_to_fresh_history_when_database_load_fails(self):
+        from unittest.mock import patch
+        import main
+
+        session_id = "test-db-load-failure-session"
+        main.sessions.pop(session_id, None)
+        try:
+            # A DB hiccup on the read path shouldn't surface as a 500 for what
+            # used to be a plain cache miss — it should degrade to the same
+            # fresh-history behavior as if nothing was ever persisted.
+            with patch.object(main.database, "load_session_history", side_effect=Exception("simulated db failure")):
+                history = main.get_session_history(session_id)
+            self.assertEqual(history, [{"role": "system", "content": main.SYSTEM_PROMPT}])
+            self.assertIn(session_id, main.sessions)
+        finally:
+            main.sessions.pop(session_id, None)
+
+
+    # ── Weather context (OpenWeather "Current Weather Data" — Naviro only
+    # collects a day *count* for a trip, never real dates, so this can only
+    # ever describe today's conditions, never a forecast for a specific day
+    # of the trip) ────────────────────────────────────────────────────────
+
+    def test_get_weather_context_returns_none_and_skips_request_when_api_key_missing(self):
+        import asyncio
+        from unittest.mock import MagicMock
+        import main
+
+        previous_key = main.OPENWEATHER_API_KEY
+        main.OPENWEATHER_API_KEY = ""
+        try:
+            # No API key means get_weather_context must return before ever
+            # touching the client — a bare MagicMock stand-in lets us prove
+            # that with assert_not_called() rather than just trusting the
+            # early return.
+            client = MagicMock()
+            result = asyncio.run(main.get_weather_context(client, "Jaipur"))
+            self.assertIsNone(result)
+            client.get.assert_not_called()
+        finally:
+            main.OPENWEATHER_API_KEY = previous_key
+
+    def test_get_weather_context_returns_context_string_on_success(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import main
+
+        previous_key = main.OPENWEATHER_API_KEY
+        main.OPENWEATHER_API_KEY = "test-key"
+
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "weather": [{"description": "light rain"}],
+            "main": {"temp": 27.83},
+        }
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
+                    return await main.get_weather_context(client, "Kochi")
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNotNone(result)
+            self.assertIn("Kochi", result)
+            self.assertIn("28°C", result)  # round(27.83) == 28
+            self.assertIn("light rain", result)
+        finally:
+            main.OPENWEATHER_API_KEY = previous_key
+
+    def test_get_weather_context_returns_none_when_request_raises(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, patch
+        import main
+
+        previous_key = main.OPENWEATHER_API_KEY
+        main.OPENWEATHER_API_KEY = "test-key"
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(
+                    httpx.AsyncClient, "get", new=AsyncMock(side_effect=Exception("simulated network failure"))
+                ):
+                    return await main.get_weather_context(client, "Kochi")
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNone(result)
+        finally:
+            main.OPENWEATHER_API_KEY = previous_key
+
+    def test_get_weather_context_returns_none_on_non_success_status(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import main
+
+        previous_key = main.OPENWEATHER_API_KEY
+        main.OPENWEATHER_API_KEY = "test-key"
+
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 404
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
+                    return await main.get_weather_context(client, "Nowhereville")
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNone(result)
+        finally:
+            main.OPENWEATHER_API_KEY = previous_key
+
+    # ── Step 2: place verification pipeline + relaxed slot counts ───────────
+
+    def test_place_open_during_band_true_when_no_hours_published(self):
+        from main import _place_open_during_band
+
+        self.assertTrue(_place_open_during_band(None, "evening"))
+        self.assertTrue(_place_open_during_band([], "morning"))
+
+    def test_place_open_during_band_false_when_hours_dont_cover_band(self):
+        from main import _place_open_during_band
+
+        # Open 09:00-11:00 only — doesn't reach the evening band (17:00-22:00).
+        periods = [{"open": {"time": "0900"}, "close": {"time": "1100"}}]
+        self.assertFalse(_place_open_during_band(periods, "evening"))
+
+    def test_place_open_during_band_true_when_hours_span_midnight_into_band(self):
+        from main import _place_open_during_band
+
+        # Open 20:00, closes 02:00 the next day — covers part of the evening band.
+        periods = [{"open": {"time": "2000"}, "close": {"time": "0200"}}]
+        self.assertTrue(_place_open_during_band(periods, "evening"))
+
+    def test_place_open_during_band_true_when_no_close_time_published(self):
+        from main import _place_open_during_band
+
+        # An open time with no published close time is treated as always open,
+        # not as evidence the place shuts before this band.
+        periods = [{"open": {"time": "0900"}}]
+        self.assertTrue(_place_open_during_band(periods, "evening"))
+
+    def test_verify_place_returns_none_when_api_key_missing(self):
+        import asyncio
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = ""
+        try:
+            result = asyncio.run(main._verify_place(None, "Test Fort", "Jaipur", {"lat": 26.91, "lng": 75.78}))
+            self.assertIsNone(result)
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_verify_place_returns_none_when_business_permanently_closed(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = "test-key"
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "status": "OK",
+            "results": [
+                {
+                    "geometry": {"location": {"lat": 26.912, "lng": 75.787}},
+                    "place_id": "test-place-id",
+                    "business_status": "CLOSED_PERMANENTLY",
+                }
+            ],
+        }
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
+                    return await main._verify_place(client, "Old Fort", "Jaipur", {"lat": 26.91, "lng": 75.78})
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNone(result)
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_verify_place_returns_none_when_every_result_too_far(self):
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = "test-key"
+
+        # Every query variant resolves to the same distant result (Mumbai, while
+        # the destination is Jaipur), so all three retries are exhausted and
+        # verification honestly reports "couldn't confirm" rather than accepting
+        # a real-but-wrong-city place.
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "status": "OK",
+            "results": [
+                {
+                    "geometry": {"location": {"lat": 19.076, "lng": 72.877}},
+                    "place_id": "far-place-id",
+                    "business_status": "OPERATIONAL",
+                }
+            ],
+        }
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
+                    return await main._verify_place(client, "Some Palace", "Jaipur", {"lat": 26.91, "lng": 75.78})
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNone(result)
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_verify_place_returns_evidence_enriched_with_place_details(self):
+        import asyncio
+        import httpx
+        from unittest.mock import MagicMock, patch
+        import main
+
+        previous_key = main.GOOGLE_MAPS_API_KEY
+        main.GOOGLE_MAPS_API_KEY = "test-key"
+
+        text_search_response = MagicMock()
+        text_search_response.json.return_value = {
+            "status": "OK",
+            "results": [
+                {
+                    "geometry": {"location": {"lat": 26.912, "lng": 75.787}},
+                    "place_id": "amber-fort-id",
+                    "business_status": "OPERATIONAL",
+                    "rating": 4.5,
+                    "user_ratings_total": 1000,
+                    "opening_hours": {"open_now": True},
+                }
+            ],
+        }
+        details_response = MagicMock()
+        details_response.json.return_value = {
+            "status": "OK",
+            "result": {
+                "rating": 4.6,
+                "user_ratings_total": 55000,
+                "business_status": "OPERATIONAL",
+                "opening_hours": {
+                    "open_now": True,
+                    "periods": [{"open": {"time": "0800"}, "close": {"time": "1730"}}],
+                },
+            },
+        }
+
+        # A plain function assigned to the class picks up `client` as `self`
+        # through the normal descriptor protocol, so this can tell the Text
+        # Search call (main.GOOGLE_PLACES_URL) apart from the Place Details
+        # enrichment call (main.GOOGLE_PLACE_DETAILS_URL) by URL.
+        async def fake_get(self, url, **kwargs):
+            if url == main.GOOGLE_PLACE_DETAILS_URL:
+                return details_response
+            return text_search_response
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=fake_get):
+                    return await main._verify_place(client, "Amber Fort", "Jaipur", {"lat": 26.91, "lng": 75.78})
+
+        try:
+            result = asyncio.run(run())
+            self.assertIsNotNone(result)
+            self.assertEqual(result["place_id"], "amber-fort-id")
+            # Details enrichment should win over the thinner Text Search evidence.
+            self.assertEqual(result["rating"], 4.6)
+            self.assertEqual(result["user_ratings_total"], 55000)
+            self.assertEqual(result["periods"], [{"open": {"time": "0800"}, "close": {"time": "1730"}}])
+        finally:
+            main.GOOGLE_MAPS_API_KEY = previous_key
+
+    def test_itinerary_day_draft_accepts_two_to_five_slots(self):
+        # Locks in the relaxed range (was a fixed 3) that makes "packed = 4-5"
+        # actually satisfiable instead of always failing Groq's schema check.
+        from main import ItineraryDayDraft
+
+        two_slots = ItineraryDayDraft.model_validate(
+            {
+                "day_number": 1,
+                "day_title": "Light day",
+                "slots": [self._valid_slot("morning"), self._valid_slot("afternoon")],
+            }
+        )
+        self.assertEqual(len(two_slots.slots), 2)
+
+        five_slots = ItineraryDayDraft.model_validate(
+            {
+                "day_number": 1,
+                "day_title": "Packed day",
+                "slots": [
+                    self._valid_slot("morning"),
+                    self._valid_slot("morning"),
+                    self._valid_slot("afternoon"),
+                    self._valid_slot("afternoon"),
+                    self._valid_slot("evening"),
+                ],
+            }
+        )
+        self.assertEqual(len(five_slots.slots), 5)
+
+    def test_itinerary_day_draft_rejects_fewer_than_two_or_more_than_five_slots(self):
+        from pydantic import ValidationError
+        from main import ItineraryDayDraft
+
+        with self.assertRaises(ValidationError):
+            ItineraryDayDraft.model_validate(
+                {"day_number": 1, "day_title": "Too light", "slots": [self._valid_slot("morning")]}
+            )
+        with self.assertRaises(ValidationError):
+            ItineraryDayDraft.model_validate(
+                {
+                    "day_number": 1,
+                    "day_title": "Too packed",
+                    "slots": [
+                        self._valid_slot("morning"),
+                        self._valid_slot("morning"),
+                        self._valid_slot("afternoon"),
+                        self._valid_slot("afternoon"),
+                        self._valid_slot("evening"),
+                        self._valid_slot("evening"),
+                    ],
+                }
+            )
+
+    def test_dedupe_offenders_keeps_first_reason_per_slot(self):
+        from main import _dedupe_offenders
+
+        offenders = [
+            {"day_number": 1, "place_name": "Ghost Cafe", "reason": "not found on Google Maps"},
+            {"day_number": 1, "place_name": "Ghost Cafe", "reason": "too far"},
+            {"day_number": 2, "place_name": "Old Fort", "reason": "hours don't cover the assigned slot"},
+        ]
+        deduped = _dedupe_offenders(offenders)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped[0]["reason"], "not found on Google Maps")
+        self.assertEqual(deduped[1]["place_name"], "Old Fort")
+
+    def test_plan_endpoint_injects_weather_for_llm_but_never_persists_it(self):
+        # Locks in the fix that lets /api/plan use a same-day weather nudge
+        # (main.get_weather_context) for the generation call only. It must never
+        # leak into the persisted session history that later refinement turns
+        # read back — otherwise every subsequent turn would re-send stale
+        # "current" weather as if it still applied.
+        import tempfile
+        import os
+        from fastapi.testclient import TestClient
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import database
+        import main
+
+        previous_llm = main.llm
+        previous_db_path = database.DB_PATH
+        main.llm = MagicMock()
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        session_id = "weather-wiring-test-session"
+        captured: dict = {}
+
+        async def fake_generate_and_validate(messages, **kwargs):
+            captured["messages"] = messages
+            return main.ItineraryDraft.model_validate(
+                {
+                    "destination": "Goa",
+                    "total_days": 1,
+                    "summary": "A test summary.",
+                    "days": [
+                        {
+                            "day_number": 1,
+                            "day_title": "Day one",
+                            "slots": [
+                                self._valid_slot("morning", "historical"),
+                                self._valid_slot("afternoon", "food"),
+                            ],
+                        }
+                    ],
+                }
+            )
+
+        try:
+            database.init_db()
+            main._request_windows.clear()
+            with patch(
+                "main.get_weather_context",
+                new=AsyncMock(return_value="Current conditions in Goa: clear sky, 30°C."),
+            ), patch(
+                "main._generate_and_validate", new=AsyncMock(side_effect=fake_generate_and_validate)
+            ), patch(
+                "main.geocode_itinerary_with_repair", new=AsyncMock(side_effect=lambda d: d)
+            ):
+                with TestClient(main.app) as client:
+                    response = client.post(
+                        "/api/plan",
+                        json={"session_id": session_id, "message": "2 days in Goa", "destination": "Goa"},
+                    )
+
+            self.assertEqual(response.status_code, 200)
+
+            sent_messages = captured["messages"]
+            self.assertTrue(any("Current conditions in Goa" in m.get("content", "") for m in sent_messages))
+
+            persisted = database.load_session_history(session_id)
+            self.assertIsNotNone(persisted)
+            self.assertFalse(any("Current conditions in Goa" in m.get("content", "") for m in persisted))
+        finally:
+            main.llm = previous_llm
+            main.sessions.pop(session_id, None)
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+            main._request_windows.clear()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from groq import AsyncGroq, BadRequestError as GroqBadRequestError
 
+import database
 from database import init_db, get_db
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -63,7 +64,28 @@ app.add_middleware(
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "30") or "30")
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60") or "60")
 MAX_REQUEST_BODY_BYTES = int(os.getenv("MAX_REQUEST_BODY_BYTES", "50000") or "50000")
+# Render (and most PaaS hosts) sit the app behind one reverse proxy, so
+# request.client.host is the proxy's own address — the same for every visitor —
+# not the real caller. Set this to how many trusted hops sit in front of the app
+# (1 for Render) so we read the right X-Forwarded-For entry instead of rate
+# limiting the entire site as a single client.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1") or "1")
 _request_windows: dict[str, tuple[float, int]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort real client IP behind TRUSTED_PROXY_HOPS reverse proxies.
+
+    X-Forwarded-For is appended-to by each trusted hop it passes through, so the
+    entry TRUSTED_PROXY_HOPS-from-the-right is the address our own edge proxy
+    observed — i.e. the real caller. The leftmost entries are whatever the
+    caller claimed and are trivially spoofable, so they're never trusted."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded and TRUSTED_PROXY_HOPS > 0:
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if len(hops) >= TRUSTED_PROXY_HOPS:
+            return hops[-TRUSTED_PROXY_HOPS]
+    return request.client.host if request.client else "unknown"
 
 
 @app.middleware("http")
@@ -81,7 +103,7 @@ async def protect_api_requests(request: Request, call_next):
             return JSONResponse(status_code=413, content={"detail": "Request body is too large."})
 
     now = time.monotonic()
-    client_key = request.client.host if request.client else "unknown"
+    client_key = _client_ip(request)
     window_started, count = _request_windows.get(client_key, (now, 0))
     if now - window_started >= RATE_LIMIT_WINDOW_SECONDS:
         window_started, count = now, 0
@@ -109,14 +131,15 @@ Read their message carefully. Extract:
 - What they love (food, history, nature, culture, markets, etc.)
 - Who they're travelling as (solo, couple, group, family)
 - Budget level (budget / mid / luxury — if not stated, assume budget/mid)
-- Pace (relaxed = 2–3 spots/day, balanced = 3, packed = 4+)
+- Pace (relaxed = 2–3 spots/day, balanced = 3–4, packed = 4–5) — if the message states a
+  stop count or pace, hit that count for EVERY day. Don't default to 3 out of habit.
 
 Everything you pick must reflect THEIR specific inputs, not a generic tourist's.
 
 ━━━ STEP 2: BUILD A LOGICAL DAY ━━━
 Each day must have an intentional arc — not three random spots scattered across the city.
 
-GEOGRAPHIC FLOW: Plan the day so the three spots are near each other or on a natural route. Don't make someone go north → south → north.
+GEOGRAPHIC FLOW: Plan the day so its spots are near each other or on a natural route. Don't make someone go north → south → north.
 
 TIME OF DAY LOGIC (strict):
 - Morning (6–11am): outdoor or active. Markets just opening. Chai spots. Parks before the crowd. Quiet historical spots before tour groups arrive.
@@ -176,7 +199,9 @@ Hard rules:
 - Never repeat a place across days
 - When the user refines, only change what they asked — preserve everything else"""
 
-# ── In-memory session store ───────────────────────────────────────────────────
+# ── In-memory session cache — fast-path LRU in front of SQLite persistence ───
+# (see get_session_history / save_session_history below; a Render cold start
+# wipes this dict, but the DB row survives it)
 MAX_ACTIVE_SESSIONS = int(os.getenv("MAX_ACTIVE_SESSIONS", "1000") or "1000")
 sessions: OrderedDict[str, list[dict[str, str]]] = OrderedDict()
 
@@ -255,14 +280,33 @@ async def _generate_and_validate(
 
 
 def get_session_history(session_id: str) -> list[dict[str, str]]:
+    """Read-through cache: in-memory first, then SQLite, then a fresh
+    system-prompt-only history. Free-tier hosts (Render) cold-start the
+    backend after an idle period, wiping `sessions` — the DB row is what
+    lets a mid-refinement session recover its prior turns after that."""
     history = sessions.get(session_id)
     if history is None:
-        history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        persisted = None
+        try:
+            persisted = database.load_session_history(session_id)
+        except Exception as e:
+            logger.warning("Failed to load session %s from database: %s", session_id, e)
+        history = persisted if persisted is not None else [{"role": "system", "content": SYSTEM_PROMPT}]
         sessions[session_id] = history
     sessions.move_to_end(session_id)
     while len(sessions) > MAX_ACTIVE_SESSIONS:
         sessions.popitem(last=False)
     return history
+
+
+def save_session_history(session_id: str, history: list[dict[str, str]]) -> None:
+    """Persist session history to SQLite so it survives a cold start.
+    Best-effort: a persistence failure shouldn't break a response that
+    otherwise succeeded, so errors are logged and swallowed."""
+    try:
+        database.save_session_history(session_id, history)
+    except Exception as e:
+        logger.warning("Failed to persist session %s to database: %s", session_id, e)
 
 # ── Google Maps / Places geocoding ───────────────────────────────────────────
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -278,6 +322,10 @@ _nominatim_headers = {
     "User-Agent": "naviro/1.0 (travel.ai)",
 }
 MAX_PLACE_DISTANCE_KM = float(os.getenv("MAX_PLACE_DISTANCE_KM", "35") or "35")
+
+# ── OpenWeather — current conditions only, never a future-day forecast ──────
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+OPENWEATHER_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
 def _distance_km(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
@@ -352,35 +400,105 @@ async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
     return {"lat": 0.0, "lng": 0.0}
 
 
-async def geocode_place(
+async def _nominatim_fallback_coords(
     client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
-) -> dict:
-    """Look up precise GPS coordinates using Google Places Text Search API (fallback: Nominatim)."""
-    queries = [
-        f"{place_name} {city}",
-        f"{place_name} {city} India",
-        f"{place_name} India",
-    ]
+) -> Optional[dict]:
+    """Last-resort real geocode when Places can't confirm a place at all. Never
+    treated as verification — just a real point on the map, so the itinerary
+    still has *a* pin while the offender goes through repair."""
+    for query in [f"{place_name}, {city}, India", f"{place_name}, {city}", f"{place_name}, India"]:
+        coords = await _nominatim_geocode(client, query)
+        if coords["lat"] == 0.0 and coords["lng"] == 0.0:
+            continue
+        if (
+            city_center.get("lat", 0.0) != 0.0
+            and city_center.get("lng", 0.0) != 0.0
+            and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > MAX_PLACE_DISTANCE_KM
+        ):
+            continue
+        return coords
+    return None
 
-    # If Google isn't configured, go straight to the fallback.
+
+GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+
+
+async def _place_details(client: httpx.AsyncClient, place_id: str) -> dict:
+    """Best-effort enrichment (rating, review count, business status, weekly
+    hours). Returns {} on any failure — that's missing evidence, never
+    fabricated evidence, so callers must treat {} as "unknown", not "bad"."""
     if not GOOGLE_MAPS_API_KEY:
-        for query in [
-            f"{place_name}, {city}, India",
-            f"{place_name}, {city}",
-            f"{place_name}, India",
-        ]:
-            coords = await _nominatim_geocode(client, query)
-            if coords["lat"] == 0.0 and coords["lng"] == 0.0:
-                continue
-            if (
-                city_center.get("lat", 0.0) != 0.0
-                and city_center.get("lng", 0.0) != 0.0
-                and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > 120
-            ):
-                continue
-            return coords
-        return {"lat": 0.0, "lng": 0.0}
-    for query in queries:
+        return {}
+    try:
+        resp = await client.get(
+            GOOGLE_PLACE_DETAILS_URL,
+            params={
+                "place_id": place_id,
+                "fields": "rating,user_ratings_total,business_status,opening_hours",
+                "key": GOOGLE_MAPS_API_KEY,
+            },
+            timeout=8.0,
+        )
+        data = resp.json()
+        if data.get("status") != "OK":
+            return {}
+        return data.get("result", {})
+    except Exception as e:
+        logger.warning("Place details error for place_id=%s: %s", place_id, e)
+        return {}
+
+
+# Matches the SYSTEM_PROMPT's own band definitions (morning 6-11am, afternoon
+# 12-5pm, evening 5-10pm) so the "closed doors" check enforces the same rule
+# the model was told to write to.
+_TIME_BAND_MINUTES = {
+    "morning": (6 * 60, 11 * 60),
+    "afternoon": (12 * 60, 17 * 60),
+    "evening": (17 * 60, 22 * 60),
+}
+
+
+def _place_open_during_band(periods: Optional[list], time_of_day: str) -> bool:
+    """True unless weekly hours prove the place is never open during this band
+    on any day of the week. We don't collect an actual visit date, so this
+    checks "is there ever a day this fits" rather than one specific weekday.
+    No published hours (common for parks, lakes, street food lanes, viewpoints)
+    is not evidence of being closed — treated as open."""
+    band = _TIME_BAND_MINUTES.get((time_of_day or "").lower().strip())
+    if not periods or band is None:
+        return True
+    band_start, band_end = band
+    for period in periods:
+        opens = period.get("open")
+        if not opens:
+            continue
+        closes = period.get("close")
+        if not closes:
+            return True  # no close time published — treated as always open
+        try:
+            open_min = int(opens["time"][:2]) * 60 + int(opens["time"][2:])
+            close_min = int(closes["time"][:2]) * 60 + int(closes["time"][2:])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if close_min <= open_min:
+            close_min += 24 * 60  # spans past midnight
+        if open_min < band_end and close_min > band_start:
+            return True
+    return False
+
+
+async def _verify_place(
+    client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
+) -> Optional[dict]:
+    """Confirm a place is real via Google Places Text Search, then enrich it
+    via Place Details. Returns None when Places can't confirm it (no key, no
+    result, too far, or a permanently/temporarily closed business) — the
+    caller treats None as an invented place needing repair, never as a reason
+    to quietly scatter a fake pin near the city center."""
+    if not GOOGLE_MAPS_API_KEY:
+        return None
+
+    for query in [f"{place_name} {city}", f"{place_name} {city} India", f"{place_name} India"]:
         try:
             resp = await client.get(
                 GOOGLE_PLACES_URL,
@@ -393,10 +511,11 @@ async def geocode_place(
 
             if status == "REQUEST_DENIED":
                 logger.error("Places API key rejected: %s", data.get("error_message", "no message"))
-                break  # key issue — no point retrying
+                return None  # key issue — no point retrying other queries
 
             if status == "OK" and data.get("results"):
-                loc = data["results"][0]["geometry"]["location"]
+                result = data["results"][0]
+                loc = result["geometry"]["location"]
                 lat, lng = loc["lat"], loc["lng"]
 
                 if (
@@ -407,28 +526,42 @@ async def geocode_place(
                     logger.warning("Places result for '%s' too far from '%s' — skipping", place_name, city)
                     continue
 
-                return {"lat": lat, "lng": lng}
+                business_status = result.get("business_status")
+                if business_status in ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"):
+                    logger.warning("'%s' is %s — treating as unverified", place_name, business_status)
+                    return None
+
+                verified = {
+                    "lat": lat,
+                    "lng": lng,
+                    "place_id": result.get("place_id"),
+                    "rating": result.get("rating"),
+                    "user_ratings_total": result.get("user_ratings_total"),
+                    "business_status": business_status,
+                    "open_now": (result.get("opening_hours") or {}).get("open_now"),
+                    "periods": None,
+                }
+
+                place_id = verified["place_id"]
+                if place_id:
+                    details = await _place_details(client, place_id)
+                    if details:
+                        verified["rating"] = details.get("rating", verified["rating"])
+                        verified["user_ratings_total"] = details.get(
+                            "user_ratings_total", verified["user_ratings_total"]
+                        )
+                        verified["business_status"] = details.get("business_status", verified["business_status"])
+                        hours = details.get("opening_hours") or {}
+                        if hours.get("periods") is not None:
+                            verified["periods"] = hours["periods"]
+                            verified["open_now"] = hours.get("open_now", verified["open_now"])
+
+                return verified
         except Exception as e:
-            logger.warning("Places geocoding error for '%s': %s", place_name, e)
+            logger.warning("Places verification error for '%s': %s", place_name, e)
             continue
 
-    # Fallback: Nominatim
-    for query in [
-        f"{place_name}, {city}, India",
-        f"{place_name}, {city}",
-        f"{place_name}, India",
-    ]:
-        coords = await _nominatim_geocode(client, query)
-        if coords["lat"] == 0.0 and coords["lng"] == 0.0:
-            continue
-        if (
-            city_center.get("lat", 0.0) != 0.0
-            and city_center.get("lng", 0.0) != 0.0
-            and _distance_km(city_center["lat"], city_center["lng"], coords["lat"], coords["lng"]) > MAX_PLACE_DISTANCE_KM
-        ):
-            continue
-        return coords
-    return {"lat": 0.0, "lng": 0.0}
+    return None
 
 
 async def _places_nearby(
@@ -474,6 +607,43 @@ async def _places_nearby(
         return []
 
 
+async def get_weather_context(client: httpx.AsyncClient, city: str) -> Optional[str]:
+    """Best-effort *current* conditions for the destination city, phrased as a
+    ready-to-inject hint for the planning conversation. Naviro only collects a
+    trip's day *count*, never real dates, so there is no way to fetch a
+    forecast for any specific day of the trip — this stays honest about that
+    limit instead of overclaiming, and only offers today's weather as general
+    seasonal awareness (e.g. lean indoors if it's currently pouring or very
+    hot), never as a guarantee about any specific day. Returns None (never
+    raises) when no key is configured, the request fails, or the response is
+    missing fields we need — silence here just means the itinerary is built
+    without a weather nudge, not that anything is broken."""
+    if not OPENWEATHER_API_KEY:
+        return None
+    try:
+        resp = await client.get(
+            OPENWEATHER_CURRENT_URL,
+            params={"q": f"{city},IN", "appid": OPENWEATHER_API_KEY, "units": "metric"},
+            timeout=8.0,
+        )
+        if not resp.is_success:
+            logger.warning("OpenWeather request for '%s' failed with status %s", city, resp.status_code)
+            return None
+        data = resp.json()
+        description = data["weather"][0]["description"]
+        temp = round(data["main"]["temp"])
+        return (
+            f"Current conditions in {city}: {description}, {temp}°C. This is "
+            "today's weather, not a forecast for the trip's actual dates — use it "
+            "only as general seasonal awareness (e.g. lean toward indoor/shaded "
+            "picks if it's currently very rainy or very hot), not as a guarantee "
+            "about any specific day."
+        )
+    except Exception as e:
+        logger.warning("OpenWeather lookup failed for '%s': %s", city, e)
+        return None
+
+
 def _find_slots_outside_radius(itinerary: dict, city_center: dict) -> list[dict]:
     """Return slots whose coordinates are too far from the destination center."""
     if (
@@ -500,24 +670,47 @@ def _find_slots_outside_radius(itinerary: dict, city_center: dict) -> list[dict]
                         "day_number": (day or {}).get("day_number", d_idx + 1),
                         "time_of_day": (slot or {}).get("time_of_day", ""),
                         "place_name": (slot or {}).get("place_name", ""),
+                        "reason": "too far",
                         "distance_km": round(distance_km, 1),
                     }
                 )
     return offenders
 
 
+def _dedupe_offenders(offenders: list[dict]) -> list[dict]:
+    """A slot can be flagged for more than one reason (e.g. unverified AND, once
+    a fallback geocode lands it somewhere odd, too far). Keep the first reason
+    found per (day_number, place_name) rather than asking the LLM to repair the
+    same slot twice over in one prompt."""
+    seen: set[tuple] = set()
+    deduped = []
+    for offender in offenders:
+        key = (offender.get("day_number"), offender.get("place_name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(offender)
+    return deduped
+
+
 async def _repair_itinerary_far_places(itinerary: dict, offenders: list[dict]) -> Optional[dict]:
-    """Ask the LLM to replace out-of-town picks with local alternatives (JSON-only)."""
+    """Ask the LLM to replace unusable picks with better local alternatives (JSON-only)."""
     if llm is None or not offenders:
         return None
 
     repair_prompt = """You are repairing a travel itinerary JSON.
 
-Some places are NOT inside the destination town/city (they geocode far away). Replace ONLY those slots with better local alternatives inside the destination town/city or immediate outskirts (<= 20 km). Keep everything else unchanged.
+Some slots are flagged as offenders, each with a reason: "too far" (not actually inside
+the destination town/city), "not found on Google Maps" (could not be confirmed as a real,
+findable place), or "hours don't cover the assigned slot" (real, but doesn't keep hours
+that fit when it's scheduled). Replace ONLY the flagged slots with better local
+alternatives that don't have the same problem. Keep everything else unchanged.
 
 Rules:
 - Preserve: destination, total_days, day_number/day_title structure, and time_of_day values.
-- For each offender slot: change place_name/description/how_to_get_there/estimated_* /local_tip to match the new local place.
+- For each offender slot: change place_name/description/how_to_get_there/estimated_*/local_tip
+  to a real, well-known, specific place inside the destination town/city or immediate
+  outskirts (<= 20 km) that fits the reason it was flagged for.
 - Never include a place from another city (no day trips) unless the user explicitly asked.
 """
 
@@ -543,72 +736,111 @@ Rules:
 
 
 async def geocode_itinerary_with_repair(itinerary: dict) -> dict:
-    """Geocode, then repair out-of-town slots once and geocode again."""
-    itinerary = await geocode_itinerary(itinerary)
+    """Verify + geocode, then repair unverified/closed/mistimed/out-of-town slots
+    once and verify again. One retry, same philosophy as the LLM's own
+    structured-output retry: fix once, then be honest about whatever's left."""
+    itinerary, offenders = await geocode_itinerary(itinerary)
 
     city = itinerary.get("destination", "")
     async with httpx.AsyncClient() as client:
         city_center = await geocode_city_center(client, city)
 
-    offenders = _find_slots_outside_radius(itinerary, city_center)
+    offenders = _dedupe_offenders(offenders + _find_slots_outside_radius(itinerary, city_center))
     if not offenders:
         return itinerary
 
-    logger.warning("Out-of-town slots detected for '%s': %s", city, offenders)
+    logger.warning("Itinerary offenders for '%s': %s", city, offenders)
 
     repaired = await _repair_itinerary_far_places(itinerary, offenders)
     if not repaired:
         return itinerary
 
-    return await geocode_itinerary(repaired)
+    repaired, _ = await geocode_itinerary(repaired)
+    return repaired
 
-async def geocode_itinerary(itinerary: dict) -> dict:
-    """Geocode all places in an itinerary using Google Places API (fallback: Nominatim)."""
+
+async def geocode_itinerary(itinerary: dict) -> tuple[dict, list[dict]]:
+    """Verify + geocode every place via Google Places (fallback: Nominatim).
+
+    Returns (itinerary, offenders). An offender is a slot Places couldn't
+    confirm as real, confirmed but permanently/temporarily closed, or confirmed
+    but with hours that don't cover its assigned time-of-day band — the caller
+    decides whether to run a repair pass. This function never invents evidence
+    or silently treats a guess as a confirmed place; unconfirmed slots still get
+    *a* real (if approximate) pin via Nominatim/city-center scatter so the map
+    isn't left with a hole, but are marked verified=False and reported as
+    offenders rather than passed off as solid."""
     city = itinerary.get("destination", "")
+    offenders: list[dict] = []
     async with httpx.AsyncClient() as client:
         city_center = await geocode_city_center(client, city)
         if city_center["lat"] == 0.0 and city_center["lng"] == 0.0:
             logger.warning("Could not resolve city center for '%s'", city)
 
-        # Build a flat list of (d_idx, s_idx, place_name) to geocode
         tasks = []
         for d_idx, day in enumerate(itinerary.get("days", [])):
             for s_idx, slot in enumerate(day.get("slots", [])):
                 place_name = slot.get("place_name", "")
                 if place_name:
-                    tasks.append((d_idx, s_idx, place_name))
+                    tasks.append((d_idx, s_idx, place_name, slot.get("time_of_day", "")))
 
-        # Fire all geocode requests in parallel — Google has no rate-limit concern here
+        # Fire all verification requests in parallel — Google has no rate-limit concern here
         results = await asyncio.gather(
-            *[geocode_place(client, place_name, city, city_center)
-              for _, _, place_name in tasks],
+            *[_verify_place(client, place_name, city, city_center) for _, _, place_name, _ in tasks],
             return_exceptions=True,
         )
 
-        for (d_idx, s_idx, place_name), coords in zip(tasks, results):
-            if isinstance(coords, Exception) or (
-                isinstance(coords, dict)
-                and coords["lat"] == 0.0
-                and coords["lng"] == 0.0
-            ):
-                # Fallback: scatter slightly around city center so pins are visible
-                if city_center["lat"] != 0.0:
-                    offsets = [(-0.012, -0.008), (0.010, 0.006), (0.004, -0.011)]
-                    lat_off, lng_off = offsets[s_idx % len(offsets)]
-                    coords = {
-                        "lat": city_center["lat"] + lat_off + d_idx * 0.0015,
-                        "lng": city_center["lng"] + lng_off + d_idx * 0.0015,
-                    }
-                    logger.warning(
-                        "Fallback coords used for '%s' in '%s' (day %s slot %s)",
-                        place_name, city, d_idx + 1, s_idx + 1,
-                    )
-                else:
-                    coords = {"lat": 0.0, "lng": 0.0}
+        for (d_idx, s_idx, place_name, time_of_day), verified in zip(tasks, results):
+            slot_dict = itinerary["days"][d_idx]["slots"][s_idx]
+            day_number = itinerary["days"][d_idx].get("day_number", d_idx + 1)
 
-            itinerary["days"][d_idx]["slots"][s_idx]["coordinates"] = coords
+            if isinstance(verified, Exception):
+                logger.warning("Verification error for '%s': %s", place_name, verified)
+                verified = None
 
-    return itinerary
+            if verified is not None and not _place_open_during_band(verified.get("periods"), time_of_day):
+                logger.warning("'%s' hours don't cover its %s slot — flagging for repair", place_name, time_of_day)
+                offenders.append({
+                    "day_number": day_number,
+                    "time_of_day": time_of_day,
+                    "place_name": place_name,
+                    "reason": "hours don't cover the assigned slot",
+                })
+                verified = None  # don't apply mistimed evidence — repair may replace this slot
+
+            if verified is not None:
+                slot_dict["coordinates"] = {"lat": verified["lat"], "lng": verified["lng"]}
+                slot_dict["place_id"] = verified.get("place_id")
+                slot_dict["rating"] = verified.get("rating")
+                slot_dict["user_ratings_total"] = verified.get("user_ratings_total")
+                slot_dict["business_status"] = verified.get("business_status")
+                slot_dict["open_now"] = verified.get("open_now")
+                slot_dict["verified"] = True
+                continue
+
+            offenders.append({
+                "day_number": day_number,
+                "time_of_day": time_of_day,
+                "place_name": place_name,
+                "reason": "not found on Google Maps",
+            })
+
+            fallback_coords = await _nominatim_fallback_coords(client, place_name, city, city_center)
+            if fallback_coords is None and city_center["lat"] != 0.0:
+                offsets = [(-0.012, -0.008), (0.010, 0.006), (0.004, -0.011)]
+                lat_off, lng_off = offsets[s_idx % len(offsets)]
+                fallback_coords = {
+                    "lat": city_center["lat"] + lat_off + d_idx * 0.0015,
+                    "lng": city_center["lng"] + lng_off + d_idx * 0.0015,
+                }
+                logger.warning(
+                    "Fallback coords used for '%s' in '%s' (day %s slot %s)",
+                    place_name, city, d_idx + 1, s_idx + 1,
+                )
+            slot_dict["coordinates"] = fallback_coords or {"lat": 0.0, "lng": 0.0}
+            slot_dict["verified"] = False
+
+    return itinerary, offenders
 
 # ── Request / Response models ─────────────────────────────────────────────────
 class Coordinates(BaseModel):
@@ -632,6 +864,14 @@ class ItinerarySlot(BaseModel):
     estimated_cost: str = Field(min_length=1, max_length=80)
     local_tip: str = Field(min_length=1, max_length=1000)
     coordinates: Coordinates = Field(default_factory=Coordinates)
+    # Evidence filled in by geocoding/verification, never by the LLM. All optional
+    # and None/False by default — absence means "couldn't confirm", not "bad".
+    place_id: Optional[str] = None
+    rating: Optional[float] = None
+    user_ratings_total: Optional[int] = None
+    business_status: Optional[str] = None
+    open_now: Optional[bool] = None
+    verified: bool = False
 
 
 # ── LLM-facing "draft" schemas ────────────────────────────────────────────────
@@ -660,17 +900,22 @@ class ItinerarySlotDraft(BaseModel):
         return {**self.model_dump(), "coordinates": {"lat": 0.0, "lng": 0.0}}
 
 
+_TIME_OF_DAY_ORDER = {"morning": 0, "afternoon": 1, "evening": 2}
+
+
 class ItineraryDay(BaseModel):
     day_number: int = Field(ge=1, le=30)
     day_title: str = Field(min_length=1, max_length=160)
-    slots: list[ItinerarySlot] = Field(min_length=3, max_length=3)
+    # 2-5 covers the full pace range (relaxed 2-3, balanced 3-4, packed 4-5) —
+    # a day can have more than one stop in the same band, so this is no longer
+    # a fixed "exactly one morning/afternoon/evening" triple.
+    slots: list[ItinerarySlot] = Field(min_length=2, max_length=5)
 
     @model_validator(mode="after")
-    def has_one_slot_for_each_part_of_day(self):
-        expected = ["morning", "afternoon", "evening"]
-        actual = [slot.time_of_day.lower().strip() for slot in self.slots]
-        if actual != expected:
-            raise ValueError("Slots must be morning, afternoon, and evening in that order")
+    def slots_progress_chronologically(self):
+        positions = [_TIME_OF_DAY_ORDER.get(slot.time_of_day.lower().strip(), -1) for slot in self.slots]
+        if positions != sorted(positions):
+            raise ValueError("Slots must progress morning → afternoon → evening, never backward")
         return self
 
 
@@ -693,15 +938,15 @@ class ItineraryDayDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
     day_number: int = Field(ge=1, le=30)
     day_title: str = Field(min_length=1, max_length=160)
-    slots: list[ItinerarySlotDraft] = Field(min_length=3, max_length=3)
+    slots: list[ItinerarySlotDraft] = Field(min_length=2, max_length=5)
 
     @model_validator(mode="after")
-    def has_one_slot_for_each_part_of_day(self):
+    def slots_progress_chronologically(self):
         # Strict mode's enum guarantees each time_of_day is valid; it can't
-        # guarantee the three appear in order, so we still check that here.
-        expected = ["morning", "afternoon", "evening"]
-        if [slot.time_of_day for slot in self.slots] != expected:
-            raise ValueError("Slots must be morning, afternoon, and evening in that order")
+        # guarantee they appear in non-decreasing order, so we still check that.
+        positions = [_TIME_OF_DAY_ORDER.get(slot.time_of_day, -1) for slot in self.slots]
+        if positions != sorted(positions):
+            raise ValueError("Slots must progress morning → afternoon → evening, never backward")
         return self
 
 
@@ -811,6 +1056,10 @@ def parse_llm_json(raw_response: str, expected_type: type[BaseModel]) -> BaseMod
 class PlanRequest(BaseModel):
     session_id: str = Field(min_length=8, max_length=128)
     message: str = Field(min_length=1, max_length=2000)
+    # Known up front from the trip-planning form (unlike freeform chat, where
+    # the destination only exists inside the LLM's own response) — lets us
+    # fetch weather context before generating instead of after.
+    destination: Optional[str] = Field(default=None, max_length=120)
 
 class PlanResponse(BaseModel):
     reply: str
@@ -839,14 +1088,25 @@ async def plan(request: PlanRequest):
         history = get_session_history(request.session_id)
         history.append({"role": "user", "content": request.message})
 
+        # Weather is a same-day nudge, not part of the durable conversation — built
+        # fresh per request and never persisted into `history`, so it can't go stale
+        # in a saved session or pile up as repeated blurbs across refinements.
+        messages_for_llm = history
+        if request.destination:
+            async with httpx.AsyncClient() as client:
+                weather_context = await get_weather_context(client, request.destination)
+            if weather_context:
+                messages_for_llm = history + [{"role": "system", "content": weather_context}]
+
         draft = await _generate_and_validate(
-            history, schema_name="itinerary", schema=ITINERARY_DRAFT_SCHEMA, model=ItineraryDraft
+            messages_for_llm, schema_name="itinerary", schema=ITINERARY_DRAFT_SCHEMA, model=ItineraryDraft
         )
         geocoded = await geocode_itinerary_with_repair(draft.to_final_dict())
         itinerary = Itinerary.model_validate(geocoded)
 
         # Only retain a valid model response as conversation context.
         history.append({"role": "assistant", "content": json.dumps(draft.model_dump())})
+        save_session_history(request.session_id, history)
         return PlanResponse(reply="Itinerary ready.", itinerary=itinerary)
 
     except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
@@ -1065,7 +1325,7 @@ Rules:
             "destination": request.destination,
             "days": [{"day_number": 1, "slots": [slot.to_final() for slot in draft.slots]}],
         }
-        geocoded = await geocode_itinerary(dummy_itinerary)
+        geocoded, _ = await geocode_itinerary(dummy_itinerary)
         return ReplanResponse.model_validate({"slots": geocoded["days"][0]["slots"]})
     except (ValueError, ValidationError, json.JSONDecodeError, GroqBadRequestError):
         logger.warning("Rejected invalid replan response for %s", request.destination)
