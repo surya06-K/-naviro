@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import LivingPhoto from "./components/LivingPhoto";
+import AgentChat from "./components/AgentChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Slot {
@@ -94,8 +95,8 @@ const PROGRESS_MESSAGES = [
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center" style={{ background: "#0a0a0a" }}>
-      <div className="text-sm animate-pulse" style={{ color: "#333" }}>Loading map…</div>
+    <div className="w-full h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
+      <div className="text-sm animate-pulse" style={{ color: "var(--muted-2)" }}>Loading map…</div>
     </div>
   ),
 });
@@ -140,6 +141,7 @@ export default function Home() {
   const [activeDay, setActiveDay] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showChat, setShowChat] = useState(false);
 
   const [city, setCity] = useState("");
   const [days, setDays] = useState("2");
@@ -288,6 +290,21 @@ export default function Home() {
     );
   }
 
+  // ── Chat view ────────────────────────────────────────────────────────────────
+  if (showChat) {
+    return (
+      <AgentChat
+        onItineraryReady={(chatItinerary) => {
+          setItinerary(chatItinerary);
+          setLiveDays(chatItinerary.days);
+          setActiveDay(0);
+          setShowChat(false);
+        }}
+        onBack={() => setShowChat(false)}
+      />
+    );
+  }
+
   return (
     <PlanTripView
       city={city} setCity={setCity}
@@ -301,6 +318,7 @@ export default function Home() {
       loading={loading} error={error}
       onSubmit={handlePlan}
       onRetry={handleRetry}
+      onOpenChat={() => setShowChat(true)}
     />
   );
 }
@@ -310,7 +328,7 @@ export default function Home() {
 function PlanTripView({
   city, setCity, days, setDays, selectedVibes, toggleVibe,
   travelStyle, setTravelStyle, budget, setBudget, pace, setPace,
-  placeholderIdx, progressIdx, loading, error, onSubmit, onRetry,
+  placeholderIdx, progressIdx, loading, error, onSubmit, onRetry, onOpenChat,
 }: {
   city: string; setCity: (v: string) => void;
   days: string; setDays: (v: string) => void;
@@ -319,7 +337,7 @@ function PlanTripView({
   budget: string; setBudget: (v: string) => void;
   pace: string; setPace: (v: string) => void;
   placeholderIdx: number; progressIdx: number; loading: boolean; error: string;
-  onSubmit: () => void; onRetry: () => void;
+  onSubmit: () => void; onRetry: () => void; onOpenChat: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [bgQuery, setBgQuery] = useState(city.trim() || "India travel landscape");
@@ -335,7 +353,7 @@ function PlanTripView({
   }, [city]);
 
   return (
-    <div className="relative min-h-screen overflow-y-auto" style={{ background: "#0a0a0a" }}>
+    <div className="relative min-h-screen overflow-y-auto" style={{ background: "var(--background)" }}>
       <style>{`
         @keyframes fadeUp {
           from { opacity: 0; transform: translateY(12px); }
@@ -354,16 +372,24 @@ function PlanTripView({
 
       {/* Top bar */}
       <div className="sticky top-0 z-50 flex items-center justify-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-        <span className="text-xs tracking-[3px] uppercase" style={{ color: "#2a2a2a" }}>
+        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid var(--overlay-subtle)" }}>
+        <span className="text-xs tracking-[3px] uppercase" style={{ color: "var(--muted-3)" }}>
           naviro
         </span>
+        <button
+          onClick={onOpenChat}
+          className="absolute right-6 text-xs transition-colors duration-200"
+          style={{ color: "var(--muted-2)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--foreground-strong)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--muted-2)"; }}>
+          💬 Chat instead
+        </button>
       </div>
 
       <div className="max-w-md mx-auto px-6 pt-8 pb-12">
         {/* Where to */}
         <div className="text-center space-y-5 mb-14 fade-section" style={{ animationDelay: "0.05s" }}>
-          <h2 className="text-3xl font-semibold" style={{ color: "#fff", letterSpacing: "-0.5px" }}>
+          <h2 className="text-3xl font-semibold" style={{ color: "var(--foreground-strong)", letterSpacing: "-0.5px" }}>
             Where to?
           </h2>
           <input
@@ -372,9 +398,9 @@ function PlanTripView({
             onChange={(e) => setCity(e.target.value)}
             placeholder={PLACEHOLDERS[placeholderIdx]}
             className="w-full bg-transparent text-center text-xl font-medium outline-none pb-3 transition-colors duration-200"
-            style={{ color: "#fff", borderBottom: "1px solid #1a1a1a", caretColor: "#fff" }}
-            onFocus={(e) => { e.currentTarget.style.borderBottomColor = "#444"; }}
-            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "#1a1a1a"; }}
+            style={{ color: "var(--foreground-strong)", borderBottom: "1px solid var(--border-subtle)", caretColor: "var(--foreground-strong)" }}
+            onFocus={(e) => { e.currentTarget.style.borderBottomColor = "var(--border-focus)"; }}
+            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "var(--border-subtle)"; }}
           />
           <div className="grid grid-cols-2 gap-2 pt-2">
             {POPULAR_DESTINATIONS.map((d) => (
@@ -382,19 +408,19 @@ function PlanTripView({
                 onClick={() => setCity(d.name)}
                 className="flex items-center gap-3 p-3 rounded-2xl text-left transition-all duration-200"
                 style={{
-                  background: city === d.name ? "rgba(255,255,255,0.08)" : "#0f0f0f",
-                  border: city === d.name ? "1px solid rgba(255,255,255,0.12)" : "1px solid #151515",
+                  background: city === d.name ? "var(--overlay)" : "var(--surface)",
+                  border: city === d.name ? "1px solid var(--overlay-strong)" : "1px solid var(--border-subtle)",
                 }}
                 onMouseEnter={(e) => {
-                  if (city !== d.name) e.currentTarget.style.borderColor = "#252525";
+                  if (city !== d.name) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
                 }}
                 onMouseLeave={(e) => {
-                  if (city !== d.name) e.currentTarget.style.borderColor = "#151515";
+                  if (city !== d.name) e.currentTarget.style.borderColor = "var(--border-subtle)";
                 }}>
                 <span className="text-lg">{d.icon}</span>
                 <div>
-                  <p className="text-sm font-medium" style={{ color: "#ddd" }}>{d.name}</p>
-                  <p className="text-xs" style={{ color: "#3a3a3a" }}>{d.desc}</p>
+                  <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>{d.name}</p>
+                  <p className="text-xs" style={{ color: "var(--muted-3)" }}>{d.desc}</p>
                 </div>
               </button>
             ))}
@@ -403,24 +429,24 @@ function PlanTripView({
 
         {/* Duration */}
         <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.1s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "#888" }}>How many days?</h3>
+          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>How many days?</h3>
           <div className="flex items-center justify-center gap-6">
             <button onClick={() => setDays(String(Math.max(1, Number(days) - 1)))}
               className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
-              style={{ background: "#0f0f0f", border: "1px solid #1a1a1a", color: "#555" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#333"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1a1a1a"; }}>
+              style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", color: "var(--muted-2)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}>
               −
             </button>
             <div className="min-w-[80px]">
-              <span className="text-4xl font-semibold tabular-nums" style={{ color: "#fff" }}>{days}</span>
-              <span className="text-sm ml-1.5" style={{ color: "#3a3a3a" }}>{Number(days) === 1 ? "day" : "days"}</span>
+              <span className="text-4xl font-semibold tabular-nums" style={{ color: "var(--foreground-strong)" }}>{days}</span>
+              <span className="text-sm ml-1.5" style={{ color: "var(--muted-3)" }}>{Number(days) === 1 ? "day" : "days"}</span>
             </div>
             <button onClick={() => setDays(String(Math.min(7, Number(days) + 1)))}
               className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
-              style={{ background: "#0f0f0f", border: "1px solid #1a1a1a", color: "#555" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#333"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1a1a1a"; }}>
+              style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", color: "var(--muted-2)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}>
               +
             </button>
           </div>
@@ -428,20 +454,20 @@ function PlanTripView({
 
         {/* Vibes */}
         <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.15s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "#888" }}>What&apos;s your vibe?</h3>
+          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>What&apos;s your vibe?</h3>
           <div className="flex flex-wrap justify-center gap-2">
             {VIBES.map((v) => (
               <button key={v.label} onClick={() => toggleVibe(v.label)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
                 style={selectedVibes.includes(v.label)
-                  ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "transparent", color: "#555", border: "1px solid #1a1a1a" }
+                  ? { background: "var(--foreground-strong)", color: "var(--on-emphasis)", border: "1px solid var(--foreground-strong)", fontWeight: 500 }
+                  : { background: "transparent", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
                 }
                 onMouseEnter={(e) => {
-                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "#333";
+                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
                 }}
                 onMouseLeave={(e) => {
-                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "#1a1a1a";
+                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "var(--border-subtle)";
                 }}>
                 <span>{v.icon}</span><span>{v.label}</span>
               </button>
@@ -451,21 +477,21 @@ function PlanTripView({
 
         {/* Travel style */}
         <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.2s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Travelling as</h3>
+          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Travelling as</h3>
           <div className="flex flex-wrap justify-center gap-2">
             {TRAVEL_STYLES.map((s) => (
               <button key={s.label}
                 onClick={() => setTravelStyle(travelStyle === s.label ? "" : s.label)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
                 style={travelStyle === s.label
-                  ? { background: "#fff", color: "#000", border: "1px solid #fff", fontWeight: 500 }
-                  : { background: "transparent", color: "#555", border: "1px solid #1a1a1a" }
+                  ? { background: "var(--foreground-strong)", color: "var(--on-emphasis)", border: "1px solid var(--foreground-strong)", fontWeight: 500 }
+                  : { background: "transparent", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
                 }
                 onMouseEnter={(e) => {
-                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "#333";
+                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
                 }}
                 onMouseLeave={(e) => {
-                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "#1a1a1a";
+                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
                 }}>
                 <span>{s.icon}</span><span>{s.label}</span>
               </button>
@@ -475,25 +501,25 @@ function PlanTripView({
 
         {/* Budget */}
         <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.25s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Budget</h3>
+          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Budget</h3>
           <div className="flex justify-center gap-3">
             {BUDGETS.map((b) => (
               <button key={b.label}
                 onClick={() => setBudget(budget === b.label ? "" : b.label)}
                 className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
                 style={budget === b.label
-                  ? { background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", fontWeight: 500 }
-                  : { background: "#0f0f0f", color: "#555", border: "1px solid #151515" }
+                  ? { background: "var(--overlay)", color: "var(--foreground-strong)", border: "1px solid var(--overlay-strong)", fontWeight: 500 }
+                  : { background: "var(--surface)", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
                 }
                 onMouseEnter={(e) => {
-                  if (budget !== b.label) e.currentTarget.style.borderColor = "#252525";
+                  if (budget !== b.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
                 }}
                 onMouseLeave={(e) => {
-                  if (budget !== b.label) e.currentTarget.style.borderColor = "#151515";
+                  if (budget !== b.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
                 }}>
                 <span className="text-lg">{b.icon}</span>
                 <span>{b.label}</span>
-                <span className="text-xs" style={{ color: budget === b.label ? "#666" : "#2a2a2a" }}>{b.sub}</span>
+                <span className="text-xs" style={{ color: budget === b.label ? "var(--muted)" : "var(--muted-3)" }}>{b.sub}</span>
               </button>
             ))}
           </div>
@@ -501,25 +527,25 @@ function PlanTripView({
 
         {/* Pace */}
         <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.3s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "#888" }}>Pace</h3>
+          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Pace</h3>
           <div className="flex justify-center gap-3">
             {PACES.map((p) => (
               <button key={p.label}
                 onClick={() => setPace(pace === p.label ? "" : p.label)}
                 className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
                 style={pace === p.label
-                  ? { background: "rgba(255,255,255,0.08)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", fontWeight: 500 }
-                  : { background: "#0f0f0f", color: "#555", border: "1px solid #151515" }
+                  ? { background: "var(--overlay)", color: "var(--foreground-strong)", border: "1px solid var(--overlay-strong)", fontWeight: 500 }
+                  : { background: "var(--surface)", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
                 }
                 onMouseEnter={(e) => {
-                  if (pace !== p.label) e.currentTarget.style.borderColor = "#252525";
+                  if (pace !== p.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
                 }}
                 onMouseLeave={(e) => {
-                  if (pace !== p.label) e.currentTarget.style.borderColor = "#151515";
+                  if (pace !== p.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
                 }}>
                 <span className="text-lg">{p.icon}</span>
                 <span>{p.label}</span>
-                <span className="text-xs" style={{ color: pace === p.label ? "#666" : "#2a2a2a" }}>{p.sub}</span>
+                <span className="text-xs" style={{ color: pace === p.label ? "var(--muted)" : "var(--muted-3)" }}>{p.sub}</span>
               </button>
             ))}
           </div>
@@ -528,13 +554,13 @@ function PlanTripView({
         {/* Error & Submit */}
         {error && (
           <div className="text-center mb-4 space-y-2 fade-section">
-            <p className="text-sm" style={{ color: "#e55" }}>{error}</p>
+            <p className="text-sm" style={{ color: "var(--danger)" }}>{error}</p>
             <button
               onClick={onRetry}
               className="text-sm underline underline-offset-2 transition-colors duration-200"
-              style={{ color: "#888" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "#fff"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}>
+              style={{ color: "var(--muted)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--foreground-strong)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--muted)"; }}>
               Try again
             </button>
           </div>
@@ -543,11 +569,11 @@ function PlanTripView({
         <div className="pb-10 fade-section" style={{ animationDelay: "0.35s" }}>
           <button onClick={onSubmit} disabled={!city.trim() || loading}
             className="w-full py-4 rounded-full text-sm font-medium transition-all duration-200 disabled:opacity-20"
-            style={{ background: "#fff", color: "#000" }}
+            style={{ background: "var(--foreground-strong)", color: "var(--on-emphasis)" }}
             onMouseEnter={(e) => {
               if (!e.currentTarget.disabled) {
                 e.currentTarget.style.transform = "scale(1.01)";
-                e.currentTarget.style.boxShadow = "0 0 24px rgba(255,255,255,0.08)";
+                e.currentTarget.style.boxShadow = "0 0 24px var(--overlay)";
               }
             }}
             onMouseLeave={(e) => {

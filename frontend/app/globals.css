@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  /* Deep charcoal + steel blue */
+  /* Deep charcoal + steel blue — core surfaces (shared by the map view and,
+     after the Step 4 application pass, the rest of the app) */
   --background: #0d1117;
   --foreground: #e6edf3;
   --surface: #161b22;
@@ -11,11 +12,90 @@
   --accent: #397091;
   --accent-light: #4a8ab0;
   --accent-glow: rgba(57, 112, 145, 0.25);
+
+  /* Dimmer text tiers, darkest first. Converges TravelMap's #484f58 captions,
+     LiveMode's zinc-500/600 labels, and the landing page's #555/#666/#2a2a2a/
+     #3a3a3a chip/sub-caption text. The original values here (kept unchanged
+     from the first token pass) failed WCAG AA against --background (2.28:1
+     and 1.32:1 respectively; AA needs 4.5:1 for normal text) — lightened to
+     #7d8590 (5.07:1) and #747d88 (4.53:1) so de-emphasized text stays
+     readable rather than "confirmed unreadable, flagged for later." Only a
+     genuine logo/wordmark use is exempt from this under WCAG; real caption
+     content is not. */
+  --muted-2: #7d8590;
+  --muted-3: #747d88;
+
+  /* Hairline borders for near-black surfaces (landing-page cards/inputs,
+     Live Mode inputs) — quieter than --border, which is tuned for the
+     lighter #161b22/#1c2128 panels. */
+  --border-subtle: #1a1a1a;
+  --border-subtle-hover: #333333;
+  --border-focus: #444444;
+
+  /* Peak emphasis: the white-fill / dark-text inversion used for selected
+     chips, tab switchers, and primary pill buttons on the landing page and
+     in Live Mode. */
+  --foreground-strong: #ffffff;
+  --on-emphasis: #000000;
+
+  /* Translucent white overlays on dark surfaces — landing-page selected
+     states, hover glows, and hairline dividers. */
+  --overlay-subtle: rgba(255, 255, 255, 0.03);
+  --overlay: rgba(255, 255, 255, 0.08);
+  --overlay-strong: rgba(255, 255, 255, 0.13);
+
+  /* Semantic status colors. Each pairs a solid text/icon tone with a
+     translucent bg + border wash for badges and callouts — kept separate
+     from the core palette on purpose (Live badge, safety warnings, etc.). */
+  --success: #4ade80;
+  --success-bg: rgba(20, 83, 45, 0.3);
+  --success-border: rgba(22, 101, 52, 0.5);
+  --warning: #fbbf24;
+  --warning-bg: rgba(69, 26, 3, 0.4);
+  --warning-border: rgba(146, 64, 14, 0.3);
+  --danger: #f87171;
+  --danger-bg: rgba(127, 29, 29, 0.35);
+  --danger-border: rgba(185, 28, 28, 0.45);
+
+  /* Categorical map-pin colors (morning/afternoon/evening) — decorative
+     marker colors, independent of the semantic status colors above. */
+  --pin-morning: #f97316;
+  --pin-afternoon: #7c3aed;
+  --pin-evening: #0ea5e9;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-muted-3: var(--muted-3);
+  --color-accent: var(--accent);
+  --color-accent-light: var(--accent-light);
+  --color-accent-glow: var(--accent-glow);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-subtle-hover: var(--border-subtle-hover);
+  --color-border-focus: var(--border-focus);
+  --color-foreground-strong: var(--foreground-strong);
+  --color-on-emphasis: var(--on-emphasis);
+  --color-overlay-subtle: var(--overlay-subtle);
+  --color-overlay: var(--overlay);
+  --color-overlay-strong: var(--overlay-strong);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+  --color-pin-morning: var(--pin-morning);
+  --color-pin-afternoon: var(--pin-afternoon);
+  --color-pin-evening: var(--pin-evening);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

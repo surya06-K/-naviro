@@ -32,6 +32,13 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trips (
+            slug TEXT PRIMARY KEY,
+            itinerary TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -61,3 +68,26 @@ def save_session_history(session_id: str, history: list[dict]) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def save_trip(slug: str, itinerary: dict) -> None:
+    # Slugs are freshly generated server-side on every save, so a plain INSERT
+    # is fine here — unlike sessions, there's never an existing row to update.
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO trips (slug, itinerary) VALUES (?, ?)",
+        (slug, json.dumps(itinerary)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_trip(slug: str) -> Optional[dict]:
+    conn = get_db()
+    row = conn.execute(
+        "SELECT itinerary FROM trips WHERE slug = ?", (slug,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return json.loads(row["itinerary"])

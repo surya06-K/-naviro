@@ -9,6 +9,7 @@ import os
 import json
 import time
 import re
+import secrets
 import httpx
 import asyncio
 import logging
@@ -949,12 +950,14 @@ class LiveResponse(BaseModel):
 
 
 class ReplanResponse(BaseModel):
-    slots: list[ItinerarySlot] = Field(min_length=1, max_length=3)
+    # Bound matches ItineraryDay's 2-5 (Step 2) — a packed day has up to 5
+    # remaining slots to replace, not the old fixed-3 max.
+    slots: list[ItinerarySlot] = Field(min_length=1, max_length=5)
 
 
 class ReplanResponseDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    slots: list[ItinerarySlotDraft] = Field(min_length=1, max_length=3)
+    slots: list[ItinerarySlotDraft] = Field(min_length=1, max_length=5)
 
 
 # Precomputed once at import time — regenerating a JSON schema on every request
@@ -1216,8 +1219,8 @@ should be one real insider detail a local would know."""
 class ReplanRequest(BaseModel):
     session_id: str = Field(min_length=8, max_length=128)
     destination: str = Field(min_length=1, max_length=120)
-    original_slots: list[ItinerarySlot] = Field(min_length=1, max_length=3)
-    completed_slots: list[str] = Field(default_factory=list, max_length=3)
+    original_slots: list[ItinerarySlot] = Field(min_length=1, max_length=5)
+    completed_slots: list[str] = Field(default_factory=list, max_length=5)
     disruption: str = Field(min_length=1, max_length=800)
     time_remaining: str = Field(min_length=1, max_length=80)
 
@@ -1260,3 +1263,35 @@ Rules:
     except Exception:
         logger.exception("Error in /api/replan")
         raise HTTPException(status_code=500, detail="Naviro could not replan your trip right now. Please try again.")
+
+
+# ── Save & Share ────────────────────────────────────────────────────────────────
+class SaveTripResponse(BaseModel):
+    slug: str
+
+
+@app.post("/api/trip", response_model=SaveTripResponse)
+async def save_trip(itinerary: Itinerary):
+    slug = secrets.token_urlsafe(6)  # ~8 url-safe chars, collision chance negligible at this scale
+    try:
+        database.save_trip(slug, itinerary.model_dump())
+    except Exception:
+        logger.exception("Failed to save trip")
+        raise HTTPException(status_code=500, detail="Could not save this trip. Please try again.")
+    return SaveTripResponse(slug=slug)
+
+
+@app.get("/api/trip/{slug}", response_model=Itinerary)
+async def get_trip(slug: str):
+    # slug is a random token_urlsafe string used only as a SQLite lookup key
+    # (parameterized query already prevents injection) — a garbage/guessed
+    # slug just misses and falls through to the 404 below, which is a safe
+    # enough failure mode that extra shape validation here isn't worth it.
+    try:
+        data = database.load_trip(slug)
+    except Exception:
+        logger.exception("Failed to load trip %s", slug)
+        raise HTTPException(status_code=500, detail="Could not load this trip.")
+    if data is None:
+        raise HTTPException(status_code=404, detail="This trip link doesn't exist or has expired.")
+    return Itinerary.model_validate(data)

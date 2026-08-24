@@ -737,5 +737,102 @@ class ItineraryRepairTests(unittest.TestCase):
             main._request_windows.clear()
 
 
+    # ── Step 3: Save & Share (trips table + /api/trip routes) ───────────────
+
+    def test_save_trip_then_load_trip_round_trips(self):
+        import tempfile
+        import os
+        import database
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        slug = "test-trip-slug"
+        try:
+            database.init_db()
+            itinerary = {
+                "destination": "Jaipur",
+                "total_days": 1,
+                "summary": "A test summary.",
+                "days": [
+                    {
+                        "day_number": 1,
+                        "day_title": "Day one",
+                        "slots": [self._valid_slot("morning", "historical")],
+                    }
+                ],
+            }
+            database.save_trip(slug, itinerary)
+
+            reloaded = database.load_trip(slug)
+            self.assertEqual(reloaded, itinerary)
+        finally:
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+
+    def test_load_trip_returns_none_for_unknown_slug(self):
+        import tempfile
+        import os
+        import database
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        try:
+            database.init_db()
+            self.assertIsNone(database.load_trip("does-not-exist"))
+        finally:
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+
+    def test_save_trip_and_get_trip_endpoints_round_trip_then_404_for_unknown_slug(self):
+        import tempfile
+        import os
+        from fastapi.testclient import TestClient
+        import database
+        import main
+
+        previous_db_path = database.DB_PATH
+        fd, temp_path = tempfile.mkstemp()
+        os.close(fd)
+        database.DB_PATH = temp_path
+        main._request_windows.clear()
+        try:
+            database.init_db()
+            itinerary_payload = {
+                "destination": "Jaipur",
+                "total_days": 1,
+                "summary": "A test summary.",
+                "days": [
+                    {
+                        "day_number": 1,
+                        "day_title": "Day one",
+                        "slots": [
+                            self._valid_slot("morning", "historical"),
+                            self._valid_slot("afternoon", "food"),
+                        ],
+                    }
+                ],
+            }
+            with TestClient(main.app) as client:
+                save_response = client.post("/api/trip", json=itinerary_payload)
+                self.assertEqual(save_response.status_code, 200)
+                slug = save_response.json()["slug"]
+                self.assertTrue(slug)
+
+                get_response = client.get(f"/api/trip/{slug}")
+                self.assertEqual(get_response.status_code, 200)
+                self.assertEqual(get_response.json()["destination"], "Jaipur")
+
+                missing_response = client.get("/api/trip/does-not-exist")
+                self.assertEqual(missing_response.status_code, 404)
+        finally:
+            database.DB_PATH = previous_db_path
+            os.remove(temp_path)
+            main._request_windows.clear()
+
+
 if __name__ == "__main__":
     unittest.main()

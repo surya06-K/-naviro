@@ -57,7 +57,7 @@ interface Props {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PIN_COLORS = ["#f97316", "#7c3aed", "#0ea5e9"];
+const PIN_COLORS = ["var(--pin-morning)", "var(--pin-afternoon)", "var(--pin-evening)"];
 const TIME_LABELS = ["Morning", "Afternoon", "Evening"];
 const TIME_ICONS = ["🌅", "☀️", "🌙"];
 
@@ -183,6 +183,10 @@ export default function TravelMap({
   const [emergencyError,   setEmergencyError]   = useState(false);
   const [showLive,         setShowLive]         = useState(false);
 
+  // Save & Share
+  const [sharing,     setSharing]     = useState(false);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
+
   // Destination changed (e.g. a refine swapped cities) — drop any stale safety
   // info so the next Safety tap re-fetches for the new place, not the old one.
   useEffect(() => {
@@ -211,6 +215,30 @@ export default function TravelMap({
       .finally(() => setEmergencyLoading(false));
   }
 
+  // ── Save & share the current itinerary as a link ────────────────────────────
+  async function handleShareTrip() {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+      const res = await fetch(`${apiUrl}/api/trip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination, total_days: totalDays, summary, days }),
+      });
+      if (!res.ok) throw new Error("request failed");
+      const data = await res.json();
+      const shareUrl = `${window.location.origin}/trip/${data.slug}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setShareStatus("copied");
+    } catch {
+      setShareStatus("error");
+    } finally {
+      setSharing(false);
+      setTimeout(() => setShareStatus("idle"), 2000);
+    }
+  }
+
   // ── Init Leaflet map (once) ─────────────────────────────────────────────────
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
@@ -224,17 +252,17 @@ export default function TravelMap({
         100% { transform: rotate(-45deg) scale(1)   translateY(0);    opacity: 1; }
       }
       @keyframes fadeInLine { from { opacity: 0; } to { opacity: 1; } }
-      .leaflet-container { background: #0d1117 !important; }
+      .leaflet-container { background: var(--background) !important; }
       .leaflet-control-zoom a {
-        background: rgba(22,27,34,0.9) !important; color: #8b949e !important;
-        border-color: #2d333b !important; backdrop-filter: blur(8px);
+        background: var(--surface) !important; color: var(--muted) !important;
+        border-color: var(--border) !important; backdrop-filter: blur(8px);
       }
-      .leaflet-control-zoom a:hover { background: rgba(28,33,40,0.95) !important; color: #e6edf3 !important; }
+      .leaflet-control-zoom a:hover { background: var(--surface-2) !important; color: var(--foreground) !important; }
       .leaflet-control-attribution {
-        background: rgba(13,17,23,0.75) !important; color: #484f58 !important;
+        background: var(--background) !important; color: var(--muted-2) !important;
         font-size: 10px !important; backdrop-filter: blur(4px);
       }
-      .leaflet-control-attribution a { color: #8b949e !important; }
+      .leaflet-control-attribution a { color: var(--muted) !important; }
     `;
     if (!document.getElementById("travel-map-styles")) document.head.appendChild(style);
 
@@ -296,7 +324,7 @@ export default function TravelMap({
             (slot.coordinates.lat === 0 && slot.coordinates.lng === 0)) return;
 
         const tsi   = getTimeSlotIndex(slot.time_of_day, slotIndex);
-        const color = PIN_COLORS[tsi] ?? "#888";
+        const color = PIN_COLORS[tsi] ?? "var(--muted)";
         const num   = getDisplayNumber(slot.time_of_day, slotIndex);
         const delay = latlngs.length * 380;
 
@@ -378,36 +406,36 @@ export default function TravelMap({
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#0d1117]">
+    <div className="relative w-full h-screen overflow-hidden bg-background">
       {/* ── Map canvas ───────────────────────────────────────── */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-[#161b22]/90 backdrop-blur-lg rounded-2xl p-3.5 border border-[#2d333b] shadow-xl">
+          <div className="bg-surface/90 backdrop-blur-lg rounded-2xl p-3.5 border border-border shadow-xl">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[#397091] text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
-                <h1 className="text-[#e6edf3] font-bold text-xl leading-tight truncate">{destination}</h1>
-                <p className="text-[#8b949e] text-xs mt-0.5 line-clamp-1">{summary}</p>
+                <p className="text-accent-light text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
+                <h1 className="text-foreground font-bold text-xl leading-tight truncate">{destination}</h1>
+                <p className="text-muted text-xs mt-0.5 line-clamp-1">{summary}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0 mt-1">
-                {loading && <span className="text-[#484f58] text-xs animate-pulse">Updating…</span>}
+                {loading && <span className="text-muted-2 text-xs animate-pulse">Updating…</span>}
                 <button
                   onClick={() => (showEmergency ? setShowEmergency(false) : openEmergency())}
                   title="Safety & Emergency Info"
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                     showEmergency
-                      ? "bg-red-900/40 border-red-700/50 text-red-400"
-                      : "bg-[#1c2128] border-[#2d333b] text-[#8b949e] hover:text-[#e6edf3] hover:border-[#484f58]"
+                      ? "bg-danger-bg border-danger-border text-danger"
+                      : "bg-surface-2 border-border text-muted hover:text-foreground hover:border-muted-2"
                   }`}
                 >
                   🛡️ <span className="hidden sm:inline">Safety</span>
                 </button>
                 <button
                   onClick={() => setShowLive(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-900/30 border border-green-800/50 text-green-400 text-xs font-medium hover:bg-green-900/50 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-success-bg border border-success-border text-success text-xs font-medium hover:bg-green-900/50 transition-colors"
                 >
                   🔴 <span className="hidden sm:inline">Live</span>
                 </button>
@@ -421,8 +449,8 @@ export default function TravelMap({
                   <button key={i} onClick={() => onDayChange(i)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       activeDay === i
-                        ? "bg-[#397091] text-white shadow-sm"
-                        : "bg-[#1c2128] text-[#8b949e] hover:bg-[#2d333b] hover:text-[#e6edf3]"
+                        ? "bg-accent text-white shadow-sm"
+                        : "bg-surface-2 text-muted hover:bg-border hover:text-foreground"
                     }`}>
                     Day {d.day_number}
                   </button>
@@ -430,11 +458,24 @@ export default function TravelMap({
               </div>
             )}
 
-            {/* Calendar export */}
-            <div className="flex justify-end mt-2">
+            {/* Calendar export + Save & Share */}
+            <div className="flex justify-end items-center gap-2 mt-2">
+              {shareStatus === "copied" && (
+                <span className="text-[10px] text-[#3fb950] font-medium">Link copied!</span>
+              )}
+              {shareStatus === "error" && (
+                <span className="text-[10px] text-danger font-medium">Couldn&apos;t share — try again</span>
+              )}
+              <button
+                onClick={handleShareTrip}
+                disabled={sharing}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-border text-muted text-xs font-medium hover:border-muted-2 hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                {sharing ? "🔗 Sharing…" : "🔗 Share Trip"}
+              </button>
               <button
                 onClick={() => downloadDayCalendar(safeSlots, day?.day_number ?? 1, destination)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1c2128] border border-[#2d333b] text-[#8b949e] text-xs font-medium hover:border-[#484f58] hover:text-[#e6edf3] transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-border text-muted text-xs font-medium hover:border-muted-2 hover:text-foreground transition-colors"
               >
                 📅 Export Day {day?.day_number} to Calendar
               </button>
@@ -447,76 +488,76 @@ export default function TravelMap({
       {showEmergency && (
         <div className="absolute inset-0 z-20 flex items-end justify-center p-3 pointer-events-none">
           <div className="max-w-xl w-full pointer-events-auto">
-            <div className="bg-[#161b22]/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
+            <div className="bg-surface/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-[#e6edf3] font-bold text-base">🛡️ Safety & Emergency</h2>
-                  <p className="text-[#8b949e] text-xs">{destination}</p>
+                  <h2 className="text-foreground font-bold text-base">🛡️ Safety & Emergency</h2>
+                  <p className="text-muted text-xs">{destination}</p>
                 </div>
                 <button onClick={() => setShowEmergency(false)}
-                  className="text-[#484f58] hover:text-[#e6edf3] transition-colors text-xl leading-none">×</button>
+                  className="text-muted-2 hover:text-foreground transition-colors text-xl leading-none">×</button>
               </div>
 
               {emergencyLoading && (
-                <p className="text-[#484f58] text-sm animate-pulse">Loading safety info…</p>
+                <p className="text-muted-2 text-sm animate-pulse">Loading safety info…</p>
               )}
 
               {emergencyError && (
-                <p className="text-[#8b949e] text-sm">
+                <p className="text-muted text-sm">
                   Couldn&apos;t load safety info right now. In an emergency, dial{" "}
-                  <span className="text-[#e6edf3] font-semibold">112</span> — India&apos;s
+                  <span className="text-foreground font-semibold">112</span> — India&apos;s
                   national emergency number.
                 </p>
               )}
 
               {emergency && (
                 <div className="space-y-3">
-                  <div className="bg-red-900/30 border border-red-800/40 rounded-xl p-3">
-                    <p className="text-red-400 text-xs font-semibold mb-1">🚨 Emergency Number</p>
-                    <p className="text-[#e6edf3] font-bold text-2xl">{emergency.emergency_number}</p>
+                  <div className="bg-danger-bg border border-danger-border rounded-xl p-3">
+                    <p className="text-danger text-xs font-semibold mb-1">🚨 Emergency Number</p>
+                    <p className="text-foreground font-bold text-2xl">{emergency.emergency_number}</p>
                   </div>
 
                   <div>
-                    <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                    <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
                     {emergency.hospitals.length > 0 ? (
                       <div className="space-y-2">
                         {emergency.hospitals.map((h, i) => (
                           <a key={i} href={h.maps_url} target="_blank" rel="noopener noreferrer"
-                            className="block bg-[#1c2128] border border-[#2d333b] rounded-xl p-3 hover:border-[#484f58] transition-colors">
-                            <p className="text-[#e6edf3] text-sm font-semibold">{h.name}</p>
-                            <p className="text-[#8b949e] text-xs">{h.address}</p>
-                            <p className="text-[#397091] text-xs mt-1">View on map →</p>
+                            className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-muted-2 transition-colors">
+                            <p className="text-foreground text-sm font-semibold">{h.name}</p>
+                            <p className="text-muted text-xs">{h.address}</p>
+                            <p className="text-accent-light text-xs mt-1">View on map →</p>
                           </a>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-[#8b949e] text-xs">
+                      <p className="text-muted text-xs">
                         Couldn&apos;t verify nearby hospitals. Search &quot;hospital near me&quot; on maps once you arrive.
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                    <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
                     {emergency.police_station ? (
                       <a href={emergency.police_station.maps_url} target="_blank" rel="noopener noreferrer"
-                        className="block bg-[#1c2128] border border-[#2d333b] rounded-xl p-3 hover:border-[#484f58] transition-colors">
-                        <p className="text-[#e6edf3] text-sm font-semibold">{emergency.police_station.name}</p>
-                        <p className="text-[#8b949e] text-xs">{emergency.police_station.address}</p>
-                        <p className="text-[#397091] text-xs mt-1">View on map →</p>
+                        className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-muted-2 transition-colors">
+                        <p className="text-foreground text-sm font-semibold">{emergency.police_station.name}</p>
+                        <p className="text-muted text-xs">{emergency.police_station.address}</p>
+                        <p className="text-accent-light text-xs mt-1">View on map →</p>
                       </a>
                     ) : (
-                      <p className="text-[#8b949e] text-xs">Couldn&apos;t verify the nearest police station.</p>
+                      <p className="text-muted text-xs">Couldn&apos;t verify the nearest police station.</p>
                     )}
                   </div>
 
                   {emergency.safety_tips.length > 0 && (
                     <div>
-                      <p className="text-[#484f58] text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
+                      <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
                       <div className="space-y-1">
                         {emergency.safety_tips.map((tip, i) => (
-                          <p key={i} className="text-[#8b949e] text-xs flex gap-2">
-                            <span className="text-[#484f58] shrink-0">•</span>{tip}
+                          <p key={i} className="text-muted text-xs flex gap-2">
+                            <span className="text-muted-2 shrink-0">•</span>{tip}
                           </p>
                         ))}
                       </div>
@@ -541,12 +582,12 @@ export default function TravelMap({
               onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
               className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
                 selectedSlot === i
-                  ? "bg-[#397091] text-white border-[#397091]"
-                  : "bg-[#161b22]/85 text-[#8b949e] border-[#2d333b] hover:border-[#397091] hover:text-[#e6edf3]"
+                  ? "bg-accent text-white border-accent"
+                  : "bg-surface/85 text-muted border-border hover:border-accent hover:text-foreground"
               }`}
             >
               <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                style={{ background: PIN_COLORS[tsi] ?? "#888" }}>{num}</span>
+                style={{ background: PIN_COLORS[tsi] ?? "var(--muted)" }}>{num}</span>
               <span className="hidden sm:block">{label}</span>
               <span className="sm:hidden">{icon}</span>
             </button>
@@ -558,51 +599,51 @@ export default function TravelMap({
       <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
         <div className="max-w-xl mx-auto">
           {slot ? (
-            <div className="bg-[#161b22]/95 backdrop-blur-lg rounded-2xl p-4 border border-[#2d333b] shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-surface/95 backdrop-blur-lg rounded-2xl p-4 border border-border shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                    style={{ background: PIN_COLORS[getTimeSlotIndex(slot.time_of_day, selectedSlot!)] ?? "#888" }}>
+                    style={{ background: PIN_COLORS[getTimeSlotIndex(slot.time_of_day, selectedSlot!)] ?? "var(--muted)" }}>
                     {getDisplayNumber(slot.time_of_day, selectedSlot!)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-[#e6edf3] font-semibold truncate">{slot.place_name}</h2>
-                    <p className="text-[#8b949e] text-xs capitalize">
+                    <h2 className="text-foreground font-semibold truncate">{slot.place_name}</h2>
+                    <p className="text-muted text-xs capitalize">
                       {slotTimeIdx !== null ? TIME_ICONS[slotTimeIdx] : "📍"} {slot.time_of_day} · {slot.category}
                     </p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedSlot(null)}
-                  className="text-[#484f58] hover:text-[#e6edf3] transition-colors shrink-0 text-xl leading-none">×</button>
+                  className="text-muted-2 hover:text-foreground transition-colors shrink-0 text-xl leading-none">×</button>
               </div>
 
-              <p className="text-[#8b949e] text-sm mb-3 leading-relaxed">{slot.description}</p>
+              <p className="text-muted text-sm mb-3 leading-relaxed">{slot.description}</p>
 
               <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
-                  <p className="text-[#484f58] mb-0.5">⏱ Duration</p>
-                  <p className="text-[#e6edf3] font-medium">{slot.estimated_duration}</p>
+                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
+                  <p className="text-muted-2 mb-0.5">⏱ Duration</p>
+                  <p className="text-foreground font-medium">{slot.estimated_duration}</p>
                 </div>
-                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
-                  <p className="text-[#484f58] mb-0.5">💰 Cost</p>
-                  <p className="text-[#e6edf3] font-medium">{slot.estimated_cost}</p>
+                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
+                  <p className="text-muted-2 mb-0.5">💰 Cost</p>
+                  <p className="text-foreground font-medium">{slot.estimated_cost}</p>
                 </div>
-                <div className="bg-[#1c2128] border border-[#2d333b] rounded-lg p-2.5">
-                  <p className="text-[#484f58] mb-0.5">🚌 Transport</p>
-                  <p className="text-[#e6edf3] font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
+                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
+                  <p className="text-muted-2 mb-0.5">🚌 Transport</p>
+                  <p className="text-foreground font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
                 </div>
               </div>
 
               <div className="rounded-lg p-2.5 text-xs mb-3" style={{ background: "rgba(57,112,145,0.1)", border: "1px solid rgba(57,112,145,0.2)" }}>
-                <p className="text-[#4a8ab0] font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-[#8b949e]">{slot.local_tip}</p>
+                <p className="text-accent-light font-semibold mb-0.5">💡 Local tip</p>
+                <p className="text-muted">{slot.local_tip}</p>
               </div>
 
               {/* LocationIQ has no ratings/reviews/hours data, so the only
                   evidence signal left is existence verification itself. */}
               {slot.verified === false && (
                 <div className="mb-3">
-                  <p className="text-[#484f58] text-[11px] leading-snug">
+                  <p className="text-muted-2 text-[11px] leading-snug">
                     📍 Approximate location — couldn&apos;t independently verify this spot.
                   </p>
                 </div>
@@ -614,26 +655,26 @@ export default function TravelMap({
                 href={`https://www.google.com/maps/dir/?api=1&destination=${slot.coordinates.lat},${slot.coordinates.lng}`}
                 target="_blank" rel="noopener noreferrer"
                 className="w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                style={{ background: "#397091" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#4a8ab0")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "#397091")}
+                style={{ background: "var(--accent)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent-light)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--accent)")}
               >
                 🧭 Get me there →
               </a>
             </div>
           ) : (
             <form onSubmit={handleRefine}
-              className="bg-[#161b22]/90 backdrop-blur-lg border border-[#2d333b] rounded-2xl p-2 flex gap-2 shadow-xl">
+              className="bg-surface/90 backdrop-blur-lg border border-border rounded-2xl p-2 flex gap-2 shadow-xl">
               <input
                 value={refineMsg}
                 onChange={(e) => setRefineMsg(e.target.value)}
                 placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-[#e6edf3] placeholder-[#484f58] outline-none"
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-foreground placeholder-muted-2 outline-none"
                 disabled={loading}
               />
               <button type="submit" disabled={loading || !refineMsg.trim()}
                 className="text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 transition-colors shrink-0"
-                style={{ background: "#397091" }}
+                style={{ background: "var(--accent)" }}
               >
                 {loading ? "…" : "Update →"}
               </button>
