@@ -207,10 +207,13 @@ export default function Home() {
     lastMessageRef.current = message;
     setLoading(true);
     setError("");
-    // Render free tier can cold-start; give a real request room to finish (p95 is
-    // 15-40s) while still recovering from a genuinely hung connection.
+    // Render free tier can cold-start (p95 15-40s), and a request with several
+    // unverified places can legitimately run long too — LocationIQ's smaller
+    // India dataset means more slots fall through to the throttled Nominatim
+    // fallback plus a repair round-trip (measured: 54.6s for a real Narsipatnam
+    // request). 80s gives that room without waiting forever on a truly hung one.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000);
+    const timeoutId = setTimeout(() => controller.abort(), 80000);
     try {
       const rawApiUrl = process.env.NEXT_PUBLIC_API_URL;
       if (!rawApiUrl && process.env.NODE_ENV === "production") {

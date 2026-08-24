@@ -324,9 +324,14 @@ LOCATIONIQ_NEARBY_URL = "https://us1.locationiq.com/v1/nearby"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 # LocationIQ's free plan allows 2 req/sec on ITS OWN account quota — unlike
 # Nominatim's shared-public-server etiquette limit below, this is ours alone,
-# so it only needs to stay under that cap, not be maximally polite.
-_LOCATIONIQ_MIN_INTERVAL_SECONDS = 1.0 / float(os.getenv("LOCATIONIQ_RPS", "2") or "2")
-_locationiq_semaphore = asyncio.Semaphore(1)
+# so it only needs to stay under that cap, not be maximally polite. A single
+# semaphore(1) with a per-call sleep would under-use the allowance (each call
+# pays the sleep AND its own network latency serially); 2 concurrent slots
+# each held for a full second correctly caps throughput at 2/sec while
+# actually using both.
+_LOCATIONIQ_RPS = float(os.getenv("LOCATIONIQ_RPS", "2") or "2")
+_LOCATIONIQ_CONCURRENCY = max(1, int(_LOCATIONIQ_RPS))
+_locationiq_semaphore = asyncio.Semaphore(_LOCATIONIQ_CONCURRENCY)
 _NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "1") or "1")
 _nominatim_semaphore = asyncio.Semaphore(_NOMINATIM_CONCURRENCY)
 _geocode_cache: dict[str, dict] = {}
@@ -394,7 +399,7 @@ async def _locationiq_search(client: httpx.AsyncClient, query: str, limit: int =
     if not LOCATIONIQ_API_KEY:
         return []
     async with _locationiq_semaphore:
-        await asyncio.sleep(_LOCATIONIQ_MIN_INTERVAL_SECONDS)
+        await asyncio.sleep(_LOCATIONIQ_CONCURRENCY / _LOCATIONIQ_RPS)
         try:
             resp = await client.get(
                 LOCATIONIQ_SEARCH_URL,
@@ -434,8 +439,12 @@ async def _nominatim_fallback_coords(
 ) -> Optional[dict]:
     """Last-resort real geocode when Places can't confirm a place at all. Never
     treated as verification — just a real point on the map, so the itinerary
-    still has *a* pin while the offender goes through repair."""
-    for query in [f"{place_name}, {city}, India", f"{place_name}, {city}", f"{place_name}, India"]:
+    still has *a* pin while the offender goes through repair. Two query
+    variants, not three — Nominatim's 1.1s/request politeness throttle means
+    every extra variant is a full second added to this slot's worst-case
+    latency, and the third, least-specific variant ("{place_name}, India")
+    is also the one least likely to land near the right city anyway."""
+    for query in [f"{place_name}, {city}, India", f"{place_name}, {city}"]:
         coords = await _nominatim_geocode(client, query)
         if coords["lat"] == 0.0 and coords["lng"] == 0.0:
             continue
@@ -989,6 +998,7 @@ def health():
         "status": "ok",
         "service": "Naviro backend",
         "groq_configured": llm is not None,
+        "locationiq_configured": bool(LOCATIONIQ_API_KEY),
     }
 
 @app.post("/api/plan", response_model=PlanResponse)
