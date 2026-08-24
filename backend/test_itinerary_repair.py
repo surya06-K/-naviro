@@ -174,15 +174,15 @@ class ItineraryRepairTests(unittest.TestCase):
         import asyncio
         import main
 
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = ""
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = ""
         try:
             # No API key means _places_nearby returns before ever touching the
             # client, so passing None in place of a real httpx.AsyncClient is safe.
-            result = asyncio.run(main._places_nearby(None, 17.667, 82.612, "hospital"))
+            result = asyncio.run(main._places_nearby(None, 17.667, 82.612, "amenity:hospital"))
             self.assertEqual(result, [])
         finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
 
     def test_places_nearby_returns_empty_list_when_request_raises(self):
         import asyncio
@@ -190,21 +190,60 @@ class ItineraryRepairTests(unittest.TestCase):
         from unittest.mock import AsyncMock, patch
         import main
 
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = "test-key"
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = "test-key"
 
         async def run():
             async with httpx.AsyncClient() as client:
                 with patch.object(
                     httpx.AsyncClient, "get", new=AsyncMock(side_effect=Exception("simulated network failure"))
                 ):
-                    return await main._places_nearby(client, 17.667, 82.612, "hospital")
+                    return await main._places_nearby(client, 17.667, 82.612, "amenity:hospital")
 
         try:
             result = asyncio.run(run())
             self.assertEqual(result, [])
         finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
+
+    def test_places_nearby_returns_parsed_results_on_success(self):
+        # LocationIQ's Nearby endpoint returns a plain JSON array (not Google's
+        # {"status": ..., "results": [...]} envelope) — locks in the parsed
+        # name/address/maps_url shape that /api/emergency depends on.
+        import asyncio
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import main
+
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = "test-key"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {
+                "name": "City Hospital",
+                "lat": "17.667",
+                "lon": "82.612",
+                "display_name": "City Hospital, Main Road, Narsipatnam",
+            }
+        ]
+
+        async def run():
+            async with httpx.AsyncClient() as client:
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
+                    return await main._places_nearby(client, 17.667, 82.612, "amenity:hospital")
+
+        try:
+            result = asyncio.run(run())
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["name"], "City Hospital")
+            self.assertEqual(result[0]["address"], "City Hospital, Main Road, Narsipatnam")
+            self.assertEqual(
+                result[0]["maps_url"], "https://www.google.com/maps/search/?api=1&query=17.667,82.612"
+            )
+        finally:
+            main.LOCATIONIQ_API_KEY = previous_key
 
     def test_emergency_endpoint_degrades_gracefully_without_llm_or_places_key(self):
         from fastapi.testclient import TestClient
@@ -212,14 +251,14 @@ class ItineraryRepairTests(unittest.TestCase):
         import main
 
         previous_llm = main.llm
-        previous_key = main.GOOGLE_MAPS_API_KEY
+        previous_key = main.LOCATIONIQ_API_KEY
         main.llm = None
-        main.GOOGLE_MAPS_API_KEY = ""
+        main.LOCATIONIQ_API_KEY = ""
         main._request_windows.clear()
         try:
             # geocode_city_center is mocked to a real, non-zero coordinate pair
             # (rather than left to run for real) so the test stays hermetic —
-            # with no Google key configured it would otherwise fall back to a
+            # with no LocationIQ key configured it would otherwise fall back to a
             # live Nominatim HTTP call plus a deliberate 1.1s rate-limit sleep.
             # A non-zero result still makes emergency_info proceed into the
             # Places lookups, so this exercises the real "no Places key"
@@ -240,7 +279,7 @@ class ItineraryRepairTests(unittest.TestCase):
             self.assertGreater(len(body["safety_tips"]), 0)
         finally:
             main.llm = previous_llm
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
             main._request_windows.clear()
 
     def test_emergency_contact_and_info_models_validate_expected_shape(self):
@@ -477,78 +516,20 @@ class ItineraryRepairTests(unittest.TestCase):
             main.OPENWEATHER_API_KEY = previous_key
 
     # ── Step 2: place verification pipeline + relaxed slot counts ───────────
-
-    def test_place_open_during_band_true_when_no_hours_published(self):
-        from main import _place_open_during_band
-
-        self.assertTrue(_place_open_during_band(None, "evening"))
-        self.assertTrue(_place_open_during_band([], "morning"))
-
-    def test_place_open_during_band_false_when_hours_dont_cover_band(self):
-        from main import _place_open_during_band
-
-        # Open 09:00-11:00 only — doesn't reach the evening band (17:00-22:00).
-        periods = [{"open": {"time": "0900"}, "close": {"time": "1100"}}]
-        self.assertFalse(_place_open_during_band(periods, "evening"))
-
-    def test_place_open_during_band_true_when_hours_span_midnight_into_band(self):
-        from main import _place_open_during_band
-
-        # Open 20:00, closes 02:00 the next day — covers part of the evening band.
-        periods = [{"open": {"time": "2000"}, "close": {"time": "0200"}}]
-        self.assertTrue(_place_open_during_band(periods, "evening"))
-
-    def test_place_open_during_band_true_when_no_close_time_published(self):
-        from main import _place_open_during_band
-
-        # An open time with no published close time is treated as always open,
-        # not as evidence the place shuts before this band.
-        periods = [{"open": {"time": "0900"}}]
-        self.assertTrue(_place_open_during_band(periods, "evening"))
+    # (LocationIQ has no opening-hours data, so the old _place_open_during_band
+    # helper and its tests are gone entirely — not just changed.)
 
     def test_verify_place_returns_none_when_api_key_missing(self):
         import asyncio
         import main
 
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = ""
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = ""
         try:
             result = asyncio.run(main._verify_place(None, "Test Fort", "Jaipur", {"lat": 26.91, "lng": 75.78}))
             self.assertIsNone(result)
         finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
-
-    def test_verify_place_returns_none_when_business_permanently_closed(self):
-        import asyncio
-        import httpx
-        from unittest.mock import AsyncMock, MagicMock, patch
-        import main
-
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = "test-key"
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "status": "OK",
-            "results": [
-                {
-                    "geometry": {"location": {"lat": 26.912, "lng": 75.787}},
-                    "place_id": "test-place-id",
-                    "business_status": "CLOSED_PERMANENTLY",
-                }
-            ],
-        }
-
-        async def run():
-            async with httpx.AsyncClient() as client:
-                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
-                    return await main._verify_place(client, "Old Fort", "Jaipur", {"lat": 26.91, "lng": 75.78})
-
-        try:
-            result = asyncio.run(run())
-            self.assertIsNone(result)
-        finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
 
     def test_verify_place_returns_none_when_every_result_too_far(self):
         import asyncio
@@ -556,24 +537,19 @@ class ItineraryRepairTests(unittest.TestCase):
         from unittest.mock import AsyncMock, MagicMock, patch
         import main
 
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = "test-key"
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = "test-key"
 
         # Every query variant resolves to the same distant result (Mumbai, while
         # the destination is Jaipur), so all three retries are exhausted and
         # verification honestly reports "couldn't confirm" rather than accepting
-        # a real-but-wrong-city place.
+        # a real-but-wrong-city place. LocationIQ's Search endpoint returns a
+        # plain JSON array (Nominatim-shaped), not Google's {"status": ...,
+        # "results": [...]} envelope.
         mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "status": "OK",
-            "results": [
-                {
-                    "geometry": {"location": {"lat": 19.076, "lng": 72.877}},
-                    "place_id": "far-place-id",
-                    "business_status": "OPERATIONAL",
-                }
-            ],
-        }
+        mock_response.json.return_value = [
+            {"lat": "19.076", "lon": "72.877", "place_id": "123", "display_name": "Some Palace, Mumbai, India"}
+        ]
 
         async def run():
             async with httpx.AsyncClient() as client:
@@ -584,69 +560,41 @@ class ItineraryRepairTests(unittest.TestCase):
             result = asyncio.run(run())
             self.assertIsNone(result)
         finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
 
-    def test_verify_place_returns_evidence_enriched_with_place_details(self):
+    def test_verify_place_returns_coordinates_for_a_confirmed_place(self):
+        # LocationIQ is a single Search call with no Place Details enrichment
+        # step — the returned dict is just coordinates, nothing else (no more
+        # place_id/rating/user_ratings_total/business_status/open_now, none of
+        # which LocationIQ has data for).
         import asyncio
         import httpx
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
         import main
 
-        previous_key = main.GOOGLE_MAPS_API_KEY
-        main.GOOGLE_MAPS_API_KEY = "test-key"
+        previous_key = main.LOCATIONIQ_API_KEY
+        main.LOCATIONIQ_API_KEY = "test-key"
 
-        text_search_response = MagicMock()
-        text_search_response.json.return_value = {
-            "status": "OK",
-            "results": [
-                {
-                    "geometry": {"location": {"lat": 26.912, "lng": 75.787}},
-                    "place_id": "amber-fort-id",
-                    "business_status": "OPERATIONAL",
-                    "rating": 4.5,
-                    "user_ratings_total": 1000,
-                    "opening_hours": {"open_now": True},
-                }
-            ],
-        }
-        details_response = MagicMock()
-        details_response.json.return_value = {
-            "status": "OK",
-            "result": {
-                "rating": 4.6,
-                "user_ratings_total": 55000,
-                "business_status": "OPERATIONAL",
-                "opening_hours": {
-                    "open_now": True,
-                    "periods": [{"open": {"time": "0800"}, "close": {"time": "1730"}}],
-                },
-            },
-        }
-
-        # A plain function assigned to the class picks up `client` as `self`
-        # through the normal descriptor protocol, so this can tell the Text
-        # Search call (main.GOOGLE_PLACES_URL) apart from the Place Details
-        # enrichment call (main.GOOGLE_PLACE_DETAILS_URL) by URL.
-        async def fake_get(self, url, **kwargs):
-            if url == main.GOOGLE_PLACE_DETAILS_URL:
-                return details_response
-            return text_search_response
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {
+                "lat": "26.9124",
+                "lon": "75.8107",
+                "place_id": "amber-fort-id",
+                "display_name": "Amber Fort, Jaipur, India",
+            }
+        ]
 
         async def run():
             async with httpx.AsyncClient() as client:
-                with patch.object(httpx.AsyncClient, "get", new=fake_get):
+                with patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=mock_response)):
                     return await main._verify_place(client, "Amber Fort", "Jaipur", {"lat": 26.91, "lng": 75.78})
 
         try:
             result = asyncio.run(run())
-            self.assertIsNotNone(result)
-            self.assertEqual(result["place_id"], "amber-fort-id")
-            # Details enrichment should win over the thinner Text Search evidence.
-            self.assertEqual(result["rating"], 4.6)
-            self.assertEqual(result["user_ratings_total"], 55000)
-            self.assertEqual(result["periods"], [{"open": {"time": "0800"}, "close": {"time": "1730"}}])
+            self.assertEqual(result, {"lat": 26.9124, "lng": 75.8107})
         finally:
-            main.GOOGLE_MAPS_API_KEY = previous_key
+            main.LOCATIONIQ_API_KEY = previous_key
 
     def test_itinerary_day_draft_accepts_two_to_five_slots(self):
         # Locks in the relaxed range (was a fixed 3) that makes "packed = 4-5"

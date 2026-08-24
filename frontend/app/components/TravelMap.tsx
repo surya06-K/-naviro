@@ -19,14 +19,9 @@ interface Slot {
   estimated_cost: string;
   local_tip: string;
   coordinates: { lat: number; lng: number };
-  // Google Places verification signals — all optional: absent/null on older
-  // cached itineraries, when the Maps API key isn't configured, or when
-  // verification couldn't confirm a place even after one repair attempt.
-  place_id?: string | null;
-  rating?: number | null;
-  user_ratings_total?: number | null;
-  business_status?: string | null;
-  open_now?: boolean | null;
+  // Set by LocationIQ-backed verification server-side, never by the LLM.
+  // Absent/undefined on older cached itineraries; false means the place
+  // couldn't be confirmed as real even after one repair attempt.
   verified?: boolean;
 }
 
@@ -603,55 +598,13 @@ export default function TravelMap({
                 <p className="text-[#8b949e]">{slot.local_tip}</p>
               </div>
 
-              {/* Evidence row — Google Places verification signals. Every field
-                  is optional: omit a pill rather than imply confidence (or
-                  doubt) the data doesn't support. */}
-              {(typeof slot.rating === "number" ||
-                typeof slot.open_now === "boolean" ||
-                slot.business_status === "CLOSED_PERMANENTLY" ||
-                slot.verified === false) && (
-                <div className="mb-3 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {typeof slot.rating === "number" && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#e6edf3]">
-                        ⭐ {slot.rating}{typeof slot.user_ratings_total === "number" && (
-                          <span className="text-[#8b949e] font-normal"> ({slot.user_ratings_total} reviews)</span>
-                        )}
-                      </span>
-                    )}
-
-                    {slot.open_now === true && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#8b949e]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-                        Open now
-                      </span>
-                    )}
-
-                    {slot.open_now === false && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#1c2128] border border-[#2d333b] text-[11px] font-medium text-[#8b949e]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                        May be closed right now
-                      </span>
-                    )}
-
-                    {slot.business_status === "CLOSED_PERMANENTLY" && (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-900/30 border border-red-800/40 text-[11px] font-semibold text-red-400">
-                        ⚠️ Permanently closed
-                      </span>
-                    )}
-                  </div>
-
-                  {slot.open_now === false && (
-                    <p className="text-[#484f58] text-[11px] leading-snug">
-                      Reflects availability when this plan was generated — not a guarantee for whenever the trip actually happens.
-                    </p>
-                  )}
-
-                  {slot.verified === false && (
-                    <p className="text-[#484f58] text-[11px] leading-snug">
-                      📍 Approximate location — couldn&apos;t independently verify this spot.
-                    </p>
-                  )}
+              {/* LocationIQ has no ratings/reviews/hours data, so the only
+                  evidence signal left is existence verification itself. */}
+              {slot.verified === false && (
+                <div className="mb-3">
+                  <p className="text-[#484f58] text-[11px] leading-snug">
+                    📍 Approximate location — couldn&apos;t independently verify this spot.
+                  </p>
                 </div>
               )}
 

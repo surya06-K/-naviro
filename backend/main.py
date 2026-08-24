@@ -308,12 +308,25 @@ def save_session_history(session_id: str, history: list[dict[str, str]]) -> None
     except Exception as e:
         logger.warning("Failed to persist session %s to database: %s", session_id, e)
 
-# ── Google Maps / Places geocoding ───────────────────────────────────────────
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
-GOOGLE_GEOCODE_URL  = "https://maps.googleapis.com/maps/api/geocode/json"
-GOOGLE_PLACES_URL   = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-GOOGLE_PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+# ── LocationIQ geocoding / place verification ────────────────────────────────
+# Switched from Google Maps Platform (2026-08-24): Google requires a billing
+# account before Geocoding/Places will respond at all, and that billing
+# verification kept failing for reasons outside this app's control (payment
+# method rejected). LocationIQ's free tier needs no card, and its Search/
+# Nearby endpoints use the same OpenStreetMap data and query shape as the
+# Nominatim fallback below — but it carries no ratings/reviews/business-status/
+# opening-hours, so that evidence layer is gone from ItinerarySlot entirely,
+# not just hidden. "verified" now means only "this is a real, locatable
+# place", never "and here's evidence about it".
+LOCATIONIQ_API_KEY = os.getenv("LOCATIONIQ_API_KEY", "")
+LOCATIONIQ_SEARCH_URL = "https://us1.locationiq.com/v1/search"
+LOCATIONIQ_NEARBY_URL = "https://us1.locationiq.com/v1/nearby"
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+# LocationIQ's free plan allows 2 req/sec on ITS OWN account quota — unlike
+# Nominatim's shared-public-server etiquette limit below, this is ours alone,
+# so it only needs to stay under that cap, not be maximally polite.
+_LOCATIONIQ_MIN_INTERVAL_SECONDS = 1.0 / float(os.getenv("LOCATIONIQ_RPS", "2") or "2")
+_locationiq_semaphore = asyncio.Semaphore(1)
 _NOMINATIM_CONCURRENCY = int(os.getenv("NOMINATIM_CONCURRENCY", "1") or "1")
 _nominatim_semaphore = asyncio.Semaphore(_NOMINATIM_CONCURRENCY)
 _geocode_cache: dict[str, dict] = {}
@@ -373,31 +386,47 @@ async def _nominatim_geocode(client: httpx.AsyncClient, query: str) -> dict:
     return coords
 
 
-async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
-    """Resolve the destination city center using Google Geocoding API (fallback: Nominatim)."""
-    try:
-        if not GOOGLE_MAPS_API_KEY:
-            return await _nominatim_geocode(client, f"{city}, India")
+async def _locationiq_search(client: httpx.AsyncClient, query: str, limit: int = 1) -> list[dict]:
+    """Raw LocationIQ Search results for `query`, or [] on any failure (no
+    key, network error, no match, 401). Never raises — callers decide what
+    "no result" means for them (unverified place vs. ungeocodable city
+    center)."""
+    if not LOCATIONIQ_API_KEY:
+        return []
+    async with _locationiq_semaphore:
+        await asyncio.sleep(_LOCATIONIQ_MIN_INTERVAL_SECONDS)
+        try:
+            resp = await client.get(
+                LOCATIONIQ_SEARCH_URL,
+                params={
+                    "key": LOCATIONIQ_API_KEY,
+                    "q": query,
+                    "format": "json",
+                    "limit": limit,
+                    "countrycodes": "in",
+                },
+                timeout=8.0,
+            )
+            if resp.status_code == 401:
+                logger.error("LocationIQ key rejected (401) for query '%s'", query)
+                return []
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning("LocationIQ search error for '%s': %s", query, e)
+            return []
 
-        resp = await client.get(
-            GOOGLE_GEOCODE_URL,
-            params={"address": f"{city}, India", "key": GOOGLE_MAPS_API_KEY},
-            timeout=8.0,
-        )
-        data = resp.json()
-        status = data.get("status")
-        logger.info("Geocoding API city center [%s] status=%s", city, status)
-        if status == "REQUEST_DENIED":
-            logger.error("Geocoding API key rejected: %s", data.get("error_message", "no message"))
-            return await _nominatim_geocode(client, f"{city}, India")
-        if status == "OK" and data.get("results"):
-            loc = data["results"][0]["geometry"]["location"]
-            return {"lat": loc["lat"], "lng": loc["lng"]}
-    except Exception as e:
-        logger.warning("City center geocoding failed for '%s': %s", city, e)
-        if not GOOGLE_MAPS_API_KEY:
-            return await _nominatim_geocode(client, f"{city}, India")
-    return {"lat": 0.0, "lng": 0.0}
+
+async def geocode_city_center(client: httpx.AsyncClient, city: str) -> dict:
+    """Resolve the destination city center via LocationIQ (fallback: Nominatim)."""
+    if LOCATIONIQ_API_KEY:
+        results = await _locationiq_search(client, f"{city}, India")
+        if results:
+            try:
+                return {"lat": float(results[0]["lat"]), "lng": float(results[0]["lon"])}
+            except (KeyError, ValueError, TypeError):
+                pass
+    return await _nominatim_geocode(client, f"{city}, India")
 
 
 async def _nominatim_fallback_coords(
@@ -420,190 +449,94 @@ async def _nominatim_fallback_coords(
     return None
 
 
-GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
-
-
-async def _place_details(client: httpx.AsyncClient, place_id: str) -> dict:
-    """Best-effort enrichment (rating, review count, business status, weekly
-    hours). Returns {} on any failure — that's missing evidence, never
-    fabricated evidence, so callers must treat {} as "unknown", not "bad"."""
-    if not GOOGLE_MAPS_API_KEY:
-        return {}
-    try:
-        resp = await client.get(
-            GOOGLE_PLACE_DETAILS_URL,
-            params={
-                "place_id": place_id,
-                "fields": "rating,user_ratings_total,business_status,opening_hours",
-                "key": GOOGLE_MAPS_API_KEY,
-            },
-            timeout=8.0,
-        )
-        data = resp.json()
-        if data.get("status") != "OK":
-            return {}
-        return data.get("result", {})
-    except Exception as e:
-        logger.warning("Place details error for place_id=%s: %s", place_id, e)
-        return {}
-
-
-# Matches the SYSTEM_PROMPT's own band definitions (morning 6-11am, afternoon
-# 12-5pm, evening 5-10pm) so the "closed doors" check enforces the same rule
-# the model was told to write to.
-_TIME_BAND_MINUTES = {
-    "morning": (6 * 60, 11 * 60),
-    "afternoon": (12 * 60, 17 * 60),
-    "evening": (17 * 60, 22 * 60),
-}
-
-
-def _place_open_during_band(periods: Optional[list], time_of_day: str) -> bool:
-    """True unless weekly hours prove the place is never open during this band
-    on any day of the week. We don't collect an actual visit date, so this
-    checks "is there ever a day this fits" rather than one specific weekday.
-    No published hours (common for parks, lakes, street food lanes, viewpoints)
-    is not evidence of being closed — treated as open."""
-    band = _TIME_BAND_MINUTES.get((time_of_day or "").lower().strip())
-    if not periods or band is None:
-        return True
-    band_start, band_end = band
-    for period in periods:
-        opens = period.get("open")
-        if not opens:
-            continue
-        closes = period.get("close")
-        if not closes:
-            return True  # no close time published — treated as always open
-        try:
-            open_min = int(opens["time"][:2]) * 60 + int(opens["time"][2:])
-            close_min = int(closes["time"][:2]) * 60 + int(closes["time"][2:])
-        except (KeyError, ValueError, TypeError):
-            continue
-        if close_min <= open_min:
-            close_min += 24 * 60  # spans past midnight
-        if open_min < band_end and close_min > band_start:
-            return True
-    return False
-
-
 async def _verify_place(
     client: httpx.AsyncClient, place_name: str, city: str, city_center: dict
 ) -> Optional[dict]:
-    """Confirm a place is real via Google Places Text Search, then enrich it
-    via Place Details. Returns None when Places can't confirm it (no key, no
-    result, too far, or a permanently/temporarily closed business) — the
-    caller treats None as an invented place needing repair, never as a reason
-    to quietly scatter a fake pin near the city center."""
-    if not GOOGLE_MAPS_API_KEY:
+    """Confirm a place is real via LocationIQ Search. Returns None when it
+    can't be confirmed (no key, no result, or too far from the destination) —
+    the caller treats None as an invented place needing repair, never as a
+    reason to quietly scatter a fake pin near the city center.
+
+    Unlike the Google Places version this replaced, there is no business-
+    status or opening-hours data available here, so a temporarily/permanently
+    closed place can't be detected this way anymore — "verified" means only
+    "this is a real, locatable place"."""
+    if not LOCATIONIQ_API_KEY:
         return None
 
-    for query in [f"{place_name} {city}", f"{place_name} {city} India", f"{place_name} India"]:
-        try:
-            resp = await client.get(
-                GOOGLE_PLACES_URL,
-                params={"query": query, "key": GOOGLE_MAPS_API_KEY},
-                timeout=8.0,
-            )
-            data = resp.json()
-            status = data.get("status")
-            logger.info("Places API [%s] status=%s", query, status)
-
-            if status == "REQUEST_DENIED":
-                logger.error("Places API key rejected: %s", data.get("error_message", "no message"))
-                return None  # key issue — no point retrying other queries
-
-            if status == "OK" and data.get("results"):
-                result = data["results"][0]
-                loc = result["geometry"]["location"]
-                lat, lng = loc["lat"], loc["lng"]
-
-                if (
-                    city_center["lat"] != 0.0
-                    and city_center["lng"] != 0.0
-                    and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > MAX_PLACE_DISTANCE_KM
-                ):
-                    logger.warning("Places result for '%s' too far from '%s' — skipping", place_name, city)
-                    continue
-
-                business_status = result.get("business_status")
-                if business_status in ("CLOSED_PERMANENTLY", "CLOSED_TEMPORARILY"):
-                    logger.warning("'%s' is %s — treating as unverified", place_name, business_status)
-                    return None
-
-                verified = {
-                    "lat": lat,
-                    "lng": lng,
-                    "place_id": result.get("place_id"),
-                    "rating": result.get("rating"),
-                    "user_ratings_total": result.get("user_ratings_total"),
-                    "business_status": business_status,
-                    "open_now": (result.get("opening_hours") or {}).get("open_now"),
-                    "periods": None,
-                }
-
-                place_id = verified["place_id"]
-                if place_id:
-                    details = await _place_details(client, place_id)
-                    if details:
-                        verified["rating"] = details.get("rating", verified["rating"])
-                        verified["user_ratings_total"] = details.get(
-                            "user_ratings_total", verified["user_ratings_total"]
-                        )
-                        verified["business_status"] = details.get("business_status", verified["business_status"])
-                        hours = details.get("opening_hours") or {}
-                        if hours.get("periods") is not None:
-                            verified["periods"] = hours["periods"]
-                            verified["open_now"] = hours.get("open_now", verified["open_now"])
-
-                return verified
-        except Exception as e:
-            logger.warning("Places verification error for '%s': %s", place_name, e)
+    for query in [f"{place_name}, {city}", f"{place_name}, {city}, India", f"{place_name}, India"]:
+        results = await _locationiq_search(client, query)
+        if not results:
             continue
+        try:
+            lat, lng = float(results[0]["lat"]), float(results[0]["lon"])
+        except (KeyError, ValueError, TypeError):
+            continue
+
+        if (
+            city_center["lat"] != 0.0
+            and city_center["lng"] != 0.0
+            and _distance_km(city_center["lat"], city_center["lng"], lat, lng) > MAX_PLACE_DISTANCE_KM
+        ):
+            logger.warning("LocationIQ result for '%s' too far from '%s' — skipping", place_name, city)
+            continue
+
+        return {"lat": lat, "lng": lng}
 
     return None
 
 
 async def _places_nearby(
-    client: httpx.AsyncClient, lat: float, lng: float, place_type: str, limit: int = 2
+    client: httpx.AsyncClient, lat: float, lng: float, osm_tag: str, limit: int = 2
 ) -> list[dict]:
     """Real, verifiable results only — returns [] on any failure rather than
     inventing a placeholder. Used for emergency info, where a wrong address is
-    worse than no address. No Nominatim fallback: OpenStreetMap has no
-    equivalent "find hospitals near this point" category search."""
-    if not GOOGLE_MAPS_API_KEY:
+    worse than no address. `osm_tag` is an OpenStreetMap key:value pair, e.g.
+    "amenity:hospital" or "amenity:police". `maps_url` links to a plain
+    Google Maps coordinate search rather than a Places `place_id` deep link —
+    LocationIQ's place_id is an OSM reference, not a Google Maps one, so it
+    can't be used to build that kind of link; a coordinate search works
+    regardless of which provider found the point."""
+    if not LOCATIONIQ_API_KEY:
         return []
     try:
         resp = await client.get(
-            GOOGLE_PLACES_NEARBY_URL,
+            LOCATIONIQ_NEARBY_URL,
             params={
-                "location": f"{lat},{lng}",
+                "key": LOCATIONIQ_API_KEY,
+                "lat": lat,
+                "lon": lng,
+                "tag": osm_tag,
                 "radius": 5000,
-                "type": place_type,
-                "key": GOOGLE_MAPS_API_KEY,
+                "limit": limit,
             },
             timeout=8.0,
         )
+        if resp.status_code != 200:
+            logger.warning("LocationIQ nearby search (%s) status=%s", osm_tag, resp.status_code)
+            return []
         data = resp.json()
-        if data.get("status") != "OK":
-            logger.warning("Places nearby search (%s) status=%s", place_type, data.get("status"))
+        if not isinstance(data, list):
             return []
         results = []
-        for place in data.get("results", [])[:limit]:
-            name = place.get("name", "")
-            place_id = place.get("place_id", "")
-            if not name or not place_id:
+        for place in data[:limit]:
+            name = place.get("name") or (place.get("display_name") or "").split(",")[0]
+            if not name:
+                continue
+            try:
+                p_lat, p_lng = float(place["lat"]), float(place["lon"])
+            except (KeyError, ValueError, TypeError):
                 continue
             results.append(
                 {
                     "name": name,
-                    "address": place.get("vicinity") or "Address unavailable — see map",
-                    "maps_url": f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+                    "address": place.get("display_name") or "Address unavailable — see map",
+                    "maps_url": f"https://www.google.com/maps/search/?api=1&query={p_lat},{p_lng}",
                 }
             )
         return results
     except Exception as e:
-        logger.warning("Places nearby search (%s) error: %s", place_type, e)
+        logger.warning("LocationIQ nearby search (%s) error: %s", osm_tag, e)
         return []
 
 
@@ -701,10 +634,9 @@ async def _repair_itinerary_far_places(itinerary: dict, offenders: list[dict]) -
     repair_prompt = """You are repairing a travel itinerary JSON.
 
 Some slots are flagged as offenders, each with a reason: "too far" (not actually inside
-the destination town/city), "not found on Google Maps" (could not be confirmed as a real,
-findable place), or "hours don't cover the assigned slot" (real, but doesn't keep hours
-that fit when it's scheduled). Replace ONLY the flagged slots with better local
-alternatives that don't have the same problem. Keep everything else unchanged.
+the destination town/city) or "not found" (could not be confirmed as a real, findable
+place). Replace ONLY the flagged slots with better local alternatives that don't have the
+same problem. Keep everything else unchanged.
 
 Rules:
 - Preserve: destination, total_days, day_number/day_title structure, and time_of_day values.
@@ -760,16 +692,19 @@ async def geocode_itinerary_with_repair(itinerary: dict) -> dict:
 
 
 async def geocode_itinerary(itinerary: dict) -> tuple[dict, list[dict]]:
-    """Verify + geocode every place via Google Places (fallback: Nominatim).
+    """Verify + geocode every place via LocationIQ (fallback: Nominatim).
 
-    Returns (itinerary, offenders). An offender is a slot Places couldn't
-    confirm as real, confirmed but permanently/temporarily closed, or confirmed
-    but with hours that don't cover its assigned time-of-day band — the caller
-    decides whether to run a repair pass. This function never invents evidence
-    or silently treats a guess as a confirmed place; unconfirmed slots still get
-    *a* real (if approximate) pin via Nominatim/city-center scatter so the map
-    isn't left with a hole, but are marked verified=False and reported as
-    offenders rather than passed off as solid."""
+    Returns (itinerary, offenders). An offender is a slot that couldn't be
+    confirmed as a real, locatable place — the caller decides whether to run
+    a repair pass. This function never invents evidence or silently treats a
+    guess as a confirmed place; unconfirmed slots still get *a* real (if
+    approximate) pin via Nominatim/city-center scatter so the map isn't left
+    with a hole, but are marked verified=False and reported as offenders
+    rather than passed off as solid.
+
+    Unlike the Google Places version this replaced, there's no business-status
+    or opening-hours data available, so a closed or badly-timed-but-real place
+    can no longer be detected here — only "does this place exist at all"."""
     city = itinerary.get("destination", "")
     offenders: list[dict] = []
     async with httpx.AsyncClient() as client:
@@ -784,7 +719,8 @@ async def geocode_itinerary(itinerary: dict) -> tuple[dict, list[dict]]:
                 if place_name:
                     tasks.append((d_idx, s_idx, place_name, slot.get("time_of_day", "")))
 
-        # Fire all verification requests in parallel — Google has no rate-limit concern here
+        # Fired in parallel; _verify_place's own semaphore keeps this within
+        # LocationIQ's 2 req/sec account quota regardless of how many run here.
         results = await asyncio.gather(
             *[_verify_place(client, place_name, city, city_center) for _, _, place_name, _ in tasks],
             return_exceptions=True,
@@ -798,23 +734,8 @@ async def geocode_itinerary(itinerary: dict) -> tuple[dict, list[dict]]:
                 logger.warning("Verification error for '%s': %s", place_name, verified)
                 verified = None
 
-            if verified is not None and not _place_open_during_band(verified.get("periods"), time_of_day):
-                logger.warning("'%s' hours don't cover its %s slot — flagging for repair", place_name, time_of_day)
-                offenders.append({
-                    "day_number": day_number,
-                    "time_of_day": time_of_day,
-                    "place_name": place_name,
-                    "reason": "hours don't cover the assigned slot",
-                })
-                verified = None  # don't apply mistimed evidence — repair may replace this slot
-
             if verified is not None:
                 slot_dict["coordinates"] = {"lat": verified["lat"], "lng": verified["lng"]}
-                slot_dict["place_id"] = verified.get("place_id")
-                slot_dict["rating"] = verified.get("rating")
-                slot_dict["user_ratings_total"] = verified.get("user_ratings_total")
-                slot_dict["business_status"] = verified.get("business_status")
-                slot_dict["open_now"] = verified.get("open_now")
                 slot_dict["verified"] = True
                 continue
 
@@ -822,7 +743,7 @@ async def geocode_itinerary(itinerary: dict) -> tuple[dict, list[dict]]:
                 "day_number": day_number,
                 "time_of_day": time_of_day,
                 "place_name": place_name,
-                "reason": "not found on Google Maps",
+                "reason": "not found",
             })
 
             fallback_coords = await _nominatim_fallback_coords(client, place_name, city, city_center)
@@ -864,13 +785,9 @@ class ItinerarySlot(BaseModel):
     estimated_cost: str = Field(min_length=1, max_length=80)
     local_tip: str = Field(min_length=1, max_length=1000)
     coordinates: Coordinates = Field(default_factory=Coordinates)
-    # Evidence filled in by geocoding/verification, never by the LLM. All optional
-    # and None/False by default — absence means "couldn't confirm", not "bad".
-    place_id: Optional[str] = None
-    rating: Optional[float] = None
-    user_ratings_total: Optional[int] = None
-    business_status: Optional[str] = None
-    open_now: Optional[bool] = None
+    # Filled in by geocoding/verification, never by the LLM. False means
+    # LocationIQ couldn't confirm this as a real place — the pin shown is an
+    # approximate fallback, not a confirmed location.
     verified: bool = False
 
 
@@ -989,11 +906,11 @@ class EmergencyContact(BaseModel):
 
 
 class EmergencyInfo(BaseModel):
-    # Sourced from Google Places Nearby Search + a hardcoded national number,
-    # not the LLM — a fabricated hospital address or phone number is the one
+    # Sourced from LocationIQ Nearby search + a hardcoded national number, not
+    # the LLM — a fabricated hospital address or phone number is the one
     # category of wrong answer that can hurt someone. hospitals/police_station
-    # are empty/None (never invented) when Places is unavailable; the frontend
-    # shows an honest "couldn't verify" state in that case.
+    # are empty/None (never invented) when LocationIQ is unavailable; the
+    # frontend shows an honest "couldn't verify" state in that case.
     emergency_number: str
     hospitals: list[EmergencyContact]
     police_station: Optional[EmergencyContact]
@@ -1135,8 +1052,8 @@ async def emergency_info(request: EmergencyRequest):
             city_center = await geocode_city_center(client, request.destination)
             if city_center["lat"] != 0.0 or city_center["lng"] != 0.0:
                 hospitals, police = await asyncio.gather(
-                    _places_nearby(client, city_center["lat"], city_center["lng"], "hospital"),
-                    _places_nearby(client, city_center["lat"], city_center["lng"], "police", limit=1),
+                    _places_nearby(client, city_center["lat"], city_center["lng"], "amenity:hospital"),
+                    _places_nearby(client, city_center["lat"], city_center["lng"], "amenity:police", limit=1),
                 )
     except Exception:
         logger.exception("Error looking up hospitals/police for %s", request.destination)
