@@ -323,8 +323,8 @@ export default function TravelMap({
         // effect find and re-tag the right marker without rebuilding any of
         // them.
         const icon = L.divIcon({
-          html: `<div style="width:44px;height:54px;position:relative;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.25))">
-            <div class="pin-inner" style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:var(--accent);border:3px solid var(--foreground-strong);border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards;box-shadow:0 2px 8px rgba(0,0,0,0.2)">
+          html: `<div style="width:44px;height:54px;position:relative;filter:drop-shadow(var(--shadow-color-md))">
+            <div class="pin-inner" style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:var(--accent);border:3px solid var(--foreground-strong);border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards;box-shadow:var(--shadow-color-sm)">
               <span style="transform:rotate(45deg);font-size:16px;font-weight:900;color:var(--foreground-strong);font-family:var(--font-geist-mono),ui-monospace,monospace;line-height:1">${num}</span>
             </div></div>`,
           className: "pin-marker", iconSize: [44, 54], iconAnchor: [22, 54], popupAnchor: [0, -58],

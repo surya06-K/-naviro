@@ -286,7 +286,7 @@ function MessageBubble({
       <div
         className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? "rounded-2xl rounded-br-md bg-accent text-white"
+            ? "rounded-2xl rounded-br-md bg-accent text-foreground-strong"
             : "rounded-2xl rounded-bl-md border border-border bg-surface text-foreground"
         }`}
       >

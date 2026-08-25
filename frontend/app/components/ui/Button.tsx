@@ -38,7 +38,7 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
 
 const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
-    "bg-accent text-white hover:bg-accent-light active:bg-accent shadow-sm",
+    "bg-accent text-foreground-strong hover:bg-accent-light active:bg-accent shadow-sm",
   secondary:
     "bg-surface-2 text-foreground border border-border hover:border-border-subtle-hover hover:bg-surface",
   ghost: "bg-transparent text-muted hover:text-foreground hover:bg-overlay-subtle",

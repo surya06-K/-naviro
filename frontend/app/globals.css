@@ -62,6 +62,14 @@
   --overlay: rgba(255, 255, 255, 0.08);
   --overlay-strong: rgba(255, 255, 255, 0.13);
 
+  /* Glass-panel edge treatment — the 1px top highlight and hairline border
+     Panel.tsx uses to simulate edge refraction. Named separately from the
+     --overlay-* family above since neither of those exact opacities (0.03,
+     0.08) matched what Panel needed; this keeps the value a real token
+     instead of an ad-hoc rgba() literal living only in one component. */
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+
   /* ── Status colors — status-only, never a brand/selection color ───────
      Each pairs a solid text/icon tone with a translucent bg + border wash
      for badges and callouts (safety warnings, error states, the visited-
@@ -112,6 +120,7 @@
   --color-overlay-subtle: var(--overlay-subtle);
   --color-overlay: var(--overlay);
   --color-overlay-strong: var(--overlay-strong);
+  --color-glass-border: var(--glass-border);
   --color-success: var(--success);
   --color-success-bg: var(--success-bg);
   --color-success-border: var(--success-border);

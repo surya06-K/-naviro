@@ -35,7 +35,7 @@ const RADIUS_CLASSES: Record<Radius, string> = {
   "sheet-top": "rounded-t-3xl",
 };
 
-const GLASS_SHADOW = "var(--shadow-color-lg), inset 0 1px 0 rgba(255,255,255,0.06)";
+const GLASS_SHADOW = "var(--shadow-color-lg), inset 0 1px 0 var(--glass-highlight)";
 const SOLID_SHADOW = "var(--shadow-color-md)";
 
 export default function Panel({
@@ -49,7 +49,7 @@ export default function Panel({
 }: PanelProps) {
   const variantClasses =
     variant === "glass"
-      ? "backdrop-blur-xl bg-surface/85 border border-white/[0.06]"
+      ? "backdrop-blur-xl bg-surface/85 border border-glass-border"
       : "bg-surface border border-border";
 
   return (

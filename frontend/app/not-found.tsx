@@ -28,7 +28,7 @@ export default function NotFound() {
 
       <Link
         href="/"
-        className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-6 py-2.5 text-body font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-accent-light active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-6 py-2.5 text-body font-semibold text-foreground-strong transition-[background-color,transform] duration-200 hover:bg-accent-light active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         Back to planning
       </Link>
