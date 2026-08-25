@@ -7,74 +7,52 @@ import type {
   Polyline as LeafletPolyline,
 } from "leaflet";
 import LiveMode from "./LiveMode";
+import type { Slot, TravelMapProps } from "@/app/types";
+import {
+  Shield,
+  Broadcast,
+  Calendar,
+  LinkIcon,
+  Navigation,
+  Clock,
+  Rupee,
+  Bus,
+  Bulb,
+  MapPin,
+  X,
+  ArrowLeft,
+  Warning,
+  TIME_OF_DAY_ICONS,
+} from "@/app/components/icons";
+import Button from "@/app/components/ui/Button";
+import Panel from "@/app/components/ui/Panel";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Slot {
-  time_of_day: string;
-  place_name: string;
-  description: string;
-  category: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  estimated_cost: string;
-  local_tip: string;
-  coordinates: { lat: number; lng: number };
-  // Set by LocationIQ-backed verification server-side, never by the LLM.
-  // Absent/undefined on older cached itineraries; false means the place
-  // couldn't be confirmed as real even after one repair attempt.
-  verified?: boolean;
-}
+// ─── Time-of-day helpers ────────────────────────────────────────────────────
+// Pins used to be colored by time-of-day band (morning/afternoon/evening).
+// Under the single-accent design system all pins share one color, so this no
+// longer feeds a color lookup — it only resolves the label/icon shown in the
+// legend and slot detail sheet.
+const TIME_BAND_LABELS: Record<string, string> = {
+  morning: "Morning",
+  afternoon: "Afternoon",
+  evening: "Evening",
+};
 
-interface Day {
-  day_number: number;
-  day_title: string;
-  slots: Slot[];
-}
-
-interface EmergencyContact {
-  name: string;
-  address: string;
-  maps_url: string;
-}
-
-interface EmergencyInfo {
-  emergency_number: string;
-  hospitals: EmergencyContact[];
-  police_station: EmergencyContact | null;
-  safety_tips: string[];
-}
-
-interface Props {
-  days: Day[];
-  activeDay: number;
-  destination: string;
-  summary: string;
-  totalDays: number;
-  onDayChange: (i: number) => void;
-  onRefine: (msg: string) => void;
-  onDaysUpdate?: (updatedDays: Day[]) => void;
-  loading: boolean;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const PIN_COLORS = ["var(--pin-morning)", "var(--pin-afternoon)", "var(--pin-evening)"];
-const TIME_LABELS = ["Morning", "Afternoon", "Evening"];
-const TIME_ICONS = ["🌅", "☀️", "🌙"];
-
-function getTimeSlotIndex(timeOfDay: string | undefined, fallbackIndex: number) {
+function normalizeTimeOfDay(timeOfDay: string | undefined, fallbackIndex: number): string {
   const n = (timeOfDay ?? "").toLowerCase();
-  if (n.includes("morning")) return 0;
-  if (n.includes("afternoon")) return 1;
-  if (n.includes("evening") || n.includes("night")) return 2;
-  return fallbackIndex % PIN_COLORS.length;
+  if (n.includes("morning")) return "morning";
+  if (n.includes("afternoon")) return "afternoon";
+  if (n.includes("evening") || n.includes("night")) return "evening";
+  const bands = ["morning", "afternoon", "evening"];
+  return bands[fallbackIndex % bands.length];
 }
 
 function getDisplayNumber(timeOfDay: string | undefined, fallbackIndex: number) {
   // Sequential position within the day, not the time-of-day band. A day can
   // have two slots in the same band (e.g. two "morning" stops), which must
-  // still get distinct numbers even though getTimeSlotIndex gives them the
-  // same pin color. fallbackIndex is always the slot's real index in
-  // day.slots at every call site, so it doubles as the display number.
+  // still get distinct numbers even though they share a time-of-day icon.
+  // fallbackIndex is always the slot's real index in day.slots at every call
+  // site, so it doubles as the display number.
   return fallbackIndex + 1;
 }
 
@@ -112,7 +90,7 @@ function buildCalendarEvent(slot: Slot, dayNumber: number, destination: string) 
   return {
     summary: slot.place_name,
     dates: `${fmtUTC(start)}/${fmtUTC(end)}`,
-    description: `${slot.description}\n\n💡 Local tip: ${slot.local_tip}\n\n🚌 Getting there: ${slot.how_to_get_there}`,
+    description: `${slot.description}\n\nLocal tip: ${slot.local_tip}\n\nGetting there: ${slot.how_to_get_there}`,
     location: `${slot.place_name}, ${destination}`,
   };
 }
@@ -166,7 +144,8 @@ export default function TravelMap({
   onRefine,
   onDaysUpdate,
   loading,
-}: Props) {
+  onExit,
+}: TravelMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<LeafletMap | null>(null);
   const markersRef   = useRef<LeafletMarker[]>([]);
@@ -178,7 +157,7 @@ export default function TravelMap({
 
   // Phase 2 state
   const [showEmergency,    setShowEmergency]    = useState(false);
-  const [emergency,        setEmergency]        = useState<EmergencyInfo | null>(null);
+  const [emergency,        setEmergency]        = useState<import("@/app/types").EmergencyInfo | null>(null);
   const [emergencyLoading, setEmergencyLoading] = useState(false);
   const [emergencyError,   setEmergencyError]   = useState(false);
   const [showLive,         setShowLive]         = useState(false);
@@ -252,6 +231,17 @@ export default function TravelMap({
         100% { transform: rotate(-45deg) scale(1)   translateY(0);    opacity: 1; }
       }
       @keyframes fadeInLine { from { opacity: 0; } to { opacity: 1; } }
+      /* Leaflet's marker HTML is injected outside React's render tree via this
+         manually-created <style> tag, so it isn't guaranteed to be caught by
+         globals.css's universal prefers-reduced-motion rule — this is the
+         explicit safety net for the pin-drop transform/opacity animation. */
+      @media (prefers-reduced-motion: reduce) {
+        .pin-inner { animation: none !important; opacity: 1 !important; transform: rotate(-45deg) scale(1) !important; }
+      }
+      /* Single-accent pin system: selected pin inverts to foreground-strong
+         fill with on-emphasis (dark) text instead of a second hue. */
+      .pin-selected .pin-inner { background: var(--foreground-strong) !important; }
+      .pin-selected .pin-inner span { color: var(--on-emphasis) !important; }
       .leaflet-container { background: var(--background) !important; }
       .leaflet-control-zoom a {
         background: var(--surface) !important; color: var(--muted) !important;
@@ -259,7 +249,7 @@ export default function TravelMap({
       }
       .leaflet-control-zoom a:hover { background: var(--surface-2) !important; color: var(--foreground) !important; }
       .leaflet-control-attribution {
-        background: var(--background) !important; color: var(--muted-2) !important;
+        background: var(--background) !important; color: var(--muted-soft) !important;
         font-size: 10px !important; backdrop-filter: blur(4px);
       }
       .leaflet-control-attribution a { color: var(--muted) !important; }
@@ -323,22 +313,27 @@ export default function TravelMap({
         if (!slot.coordinates?.lat || !slot.coordinates?.lng ||
             (slot.coordinates.lat === 0 && slot.coordinates.lng === 0)) return;
 
-        const tsi   = getTimeSlotIndex(slot.time_of_day, slotIndex);
-        const color = PIN_COLORS[tsi] ?? "var(--muted)";
         const num   = getDisplayNumber(slot.time_of_day, slotIndex);
         const delay = latlngs.length * 380;
 
+        // All pins share the single brand accent — time-of-day is now
+        // communicated by the legend/sheet's label and icon, not by hue.
+        // `pin-marker` is a stable hook for the reduced-motion/selection CSS
+        // above; `data-slot-index` (set just below) lets the selected-slot
+        // effect find and re-tag the right marker without rebuilding any of
+        // them.
         const icon = L.divIcon({
           html: `<div style="width:44px;height:54px;position:relative;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.25))">
-            <div style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:${color};border:3px solid #ffffff;border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards;box-shadow:0 2px 8px rgba(0,0,0,0.2)">
-              <span style="transform:rotate(45deg);font-size:16px;font-weight:900;color:#fff;font-family:system-ui,sans-serif;line-height:1">${num}</span>
+            <div class="pin-inner" style="position:absolute;bottom:0;left:0;width:44px;height:44px;background:var(--accent);border:3px solid var(--foreground-strong);border-radius:50% 50% 50% 0;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg) scale(0);animation:pinDrop 0.55s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms forwards;box-shadow:0 2px 8px rgba(0,0,0,0.2)">
+              <span style="transform:rotate(45deg);font-size:16px;font-weight:900;color:var(--foreground-strong);font-family:var(--font-geist-mono),ui-monospace,monospace;line-height:1">${num}</span>
             </div></div>`,
-          className: "", iconSize: [44, 54], iconAnchor: [22, 54], popupAnchor: [0, -58],
+          className: "pin-marker", iconSize: [44, 54], iconAnchor: [22, 54], popupAnchor: [0, -58],
         });
 
         const marker = L.marker([slot.coordinates.lat, slot.coordinates.lng], { icon })
           .addTo(map)
           .on("click", () => setSelectedSlot((prev) => (prev === slotIndex ? null : slotIndex)));
+        marker.getElement()?.setAttribute("data-slot-index", String(slotIndex));
 
         markersRef.current.push(marker);
         latlngs.push([slot.coordinates.lat, slot.coordinates.lng]);
@@ -347,7 +342,7 @@ export default function TravelMap({
       if (latlngs.length > 1) {
         setTimeout(() => {
           polylineRef.current = L.polyline(latlngs, {
-            color: "rgba(57,112,145,0.4)", weight: 2.5, dashArray: "6 10",
+            color: "var(--accent)", opacity: 0.4, weight: 2.5, dashArray: "6 10",
           }).addTo(map);
         }, validSlots.length * 380 + 150);
       }
@@ -360,9 +355,23 @@ export default function TravelMap({
     });
   }, [mapReady, activeDay, days]);
 
-  // ── Fly to selected slot ────────────────────────────────────────────────────
+  // ── Toggle the selected pin's style + fly to it ─────────────────────────────
+  // Kept as one effect (not split) because both reactions are driven by the
+  // same selectedSlot change. Markers themselves are never rebuilt here —
+  // that only happens in the [mapReady, activeDay, days] effect above — so
+  // toggling a class on the existing marker element is what avoids
+  // re-triggering the drop-in animation on every tap.
   useEffect(() => {
-    if (!mapReady || !mapRef.current || selectedSlot === null) return;
+    if (!mapReady || !mapRef.current) return;
+
+    markersRef.current.forEach((m) => {
+      const el = m.getElement();
+      if (!el) return;
+      const idx = Number(el.getAttribute("data-slot-index"));
+      el.classList.toggle("pin-selected", idx === selectedSlot);
+    });
+
+    if (selectedSlot === null) return;
     const sel = days[activeDay]?.slots[selectedSlot];
     if (!sel?.coordinates?.lat || !sel?.coordinates?.lng ||
         (sel.coordinates.lat === 0 && sel.coordinates.lng === 0)) return;
@@ -390,68 +399,126 @@ export default function TravelMap({
   const day          = Array.isArray(days) ? days[activeDay] : undefined;
   const safeSlots    = Array.isArray(day?.slots) ? day!.slots : [];
   const slot         = day && selectedSlot !== null ? (safeSlots[selectedSlot] ?? null) : null;
-  const slotTimeIdx  = slot && selectedSlot !== null
-    ? getTimeSlotIndex(slot.time_of_day ?? "morning", selectedSlot) : null;
+  const slotBand     = slot && selectedSlot !== null
+    ? normalizeTimeOfDay(slot.time_of_day ?? "morning", selectedSlot) : null;
+  const SlotTimeIcon = slotBand ? (TIME_OF_DAY_ICONS[slotBand] ?? MapPin) : MapPin;
+
+  // Legend entries — shared by both the mobile horizontal strip and the
+  // desktop left rail so the two layouts never drift out of sync.
+  function renderLegendItems() {
+    return safeSlots.map((s, i) => {
+      const band     = normalizeTimeOfDay(s.time_of_day, i);
+      const num      = getDisplayNumber(s.time_of_day, i);
+      const label    = TIME_BAND_LABELS[band] ?? s.time_of_day;
+      const TimeIcon = TIME_OF_DAY_ICONS[band] ?? MapPin;
+      const isSelected = selectedSlot === i;
+      return (
+        <button
+          key={i}
+          type="button"
+          onClick={() => setSelectedSlot(isSelected ? null : i)}
+          aria-pressed={isSelected}
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-small font-medium transition-all backdrop-blur-md border shadow-md shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+            isSelected
+              ? "bg-foreground-strong text-on-emphasis border-foreground-strong"
+              : "bg-surface/85 text-muted border-border hover:border-accent hover:text-foreground"
+          }`}
+        >
+          <span
+            className={`w-5 h-5 rounded-full flex items-center justify-center text-caption font-bold shrink-0 ${
+              isSelected ? "bg-on-emphasis text-foreground-strong" : "bg-accent text-foreground-strong"
+            }`}
+          >
+            {num}
+          </span>
+          <TimeIcon size={14} aria-hidden="true" />
+          <span className="hidden lg:inline">{label}</span>
+        </button>
+      );
+    });
+  }
 
   // ── Live Mode overlay ───────────────────────────────────────────────────────
   if (showLive) {
     return (
-      <LiveMode
-        destination={destination}
-        currentDaySlots={day?.slots ?? []}
-        onReplan={handleReplan}
-        onBack={() => setShowLive(false)}
-      />
+      <main id="main-content" className="min-h-dvh">
+        <LiveMode
+          destination={destination}
+          currentDaySlots={day?.slots ?? []}
+          onReplan={handleReplan}
+          onBack={() => setShowLive(false)}
+        />
+      </main>
     );
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-background">
+    <main id="main-content" className="relative w-full min-h-dvh overflow-hidden bg-background">
       {/* ── Map canvas ───────────────────────────────────────── */}
-      <div ref={containerRef} className="absolute inset-0 z-0" />
+      <div ref={containerRef} className="absolute inset-0 z-map" />
 
       {/* ── Top bar ──────────────────────────────────────────── */}
-      <div className="absolute top-0 left-0 right-0 z-10 p-3 pointer-events-none">
+      <header className="absolute top-0 left-0 right-0 z-header p-3 pointer-events-none">
         <div className="max-w-xl mx-auto pointer-events-auto">
-          <div className="bg-surface/90 backdrop-blur-lg rounded-2xl p-3.5 border border-border shadow-xl">
+          <Panel variant="glass" radius="2xl" padding="md">
             <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-accent-light text-[10px] font-bold tracking-widest uppercase mb-0.5">Naviro</p>
-                <h1 className="text-foreground font-bold text-xl leading-tight truncate">{destination}</h1>
-                <p className="text-muted text-xs mt-0.5 line-clamp-1">{summary}</p>
+              <div className="min-w-0 flex-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  icon={ArrowLeft}
+                  onClick={() => onExit?.()}
+                  className="!px-1.5 !py-1 -ml-1.5 mb-1 text-caption"
+                >
+                  New trip
+                </Button>
+                <h1 className="text-foreground font-bold text-h2 leading-tight truncate">{destination}</h1>
+                <p className="text-muted text-small mt-0.5 line-clamp-1">{summary}</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0 mt-1">
-                {loading && <span className="text-muted-2 text-xs animate-pulse">Updating…</span>}
-                <button
+              <div className="flex items-center gap-1.5 shrink-0 mt-1">
+                {loading && (
+                  <span className="text-muted-soft text-caption animate-pulse hidden sm:inline">Updating…</span>
+                )}
+                <Button
+                  type="button"
+                  variant={showEmergency ? "danger" : "secondary"}
+                  size="sm"
+                  icon={Shield}
+                  aria-label="Safety and emergency info"
                   onClick={() => (showEmergency ? setShowEmergency(false) : openEmergency())}
-                  title="Safety & Emergency Info"
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                    showEmergency
-                      ? "bg-danger-bg border-danger-border text-danger"
-                      : "bg-surface-2 border-border text-muted hover:text-foreground hover:border-muted-2"
-                  }`}
                 >
-                  🛡️ <span className="hidden sm:inline">Safety</span>
-                </button>
-                <button
+                  <span className="hidden sm:inline">Safety</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  icon={Broadcast}
+                  aria-label="Live mode"
                   onClick={() => setShowLive(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-success-bg border border-success-border text-success text-xs font-medium hover:bg-green-900/50 transition-colors"
                 >
-                  🔴 <span className="hidden sm:inline">Live</span>
-                </button>
+                  <span className="hidden sm:inline">Live</span>
+                </Button>
               </div>
             </div>
 
             {/* Day tabs */}
             {totalDays > 1 && (
-              <div className="flex gap-1.5 mt-3 flex-wrap">
+              <div className="flex gap-1.5 mt-3 flex-wrap" role="tablist" aria-label="Day">
                 {(days ?? []).map((d, i) => (
-                  <button key={i} onClick={() => onDayChange(i)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  <button
+                    key={i}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeDay === i}
+                    onClick={() => onDayChange(i)}
+                    className={`px-3 py-1.5 rounded-lg text-small font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                       activeDay === i
-                        ? "bg-accent text-white shadow-sm"
-                        : "bg-surface-2 text-muted hover:bg-border hover:text-foreground"
-                    }`}>
+                        ? "bg-accent text-foreground-strong shadow-sm"
+                        : "bg-surface-2 text-muted hover:bg-border-subtle-hover hover:text-foreground"
+                    }`}
+                  >
                     Day {d.day_number}
                   </button>
                 ))}
@@ -461,49 +528,72 @@ export default function TravelMap({
             {/* Calendar export + Save & Share */}
             <div className="flex justify-end items-center gap-2 mt-2">
               {shareStatus === "copied" && (
-                <span className="text-[10px] text-[#3fb950] font-medium">Link copied!</span>
+                <span className="text-caption text-success font-medium">Link copied!</span>
               )}
               {shareStatus === "error" && (
-                <span className="text-[10px] text-danger font-medium">Couldn&apos;t share — try again</span>
+                <span className="text-caption text-danger font-medium">Couldn&apos;t share — try again</span>
               )}
-              <button
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon={LinkIcon}
+                loading={sharing}
+                aria-label="Share trip"
                 onClick={handleShareTrip}
-                disabled={sharing}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-border text-muted text-xs font-medium hover:border-muted-2 hover:text-foreground transition-colors disabled:opacity-50"
               >
-                {sharing ? "🔗 Sharing…" : "🔗 Share Trip"}
-              </button>
-              <button
+                <span className="hidden sm:inline">Share trip</span>
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                icon={Calendar}
+                aria-label={`Export day ${day?.day_number ?? 1} to calendar`}
                 onClick={() => downloadDayCalendar(safeSlots, day?.day_number ?? 1, destination)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-border text-muted text-xs font-medium hover:border-muted-2 hover:text-foreground transition-colors"
               >
-                📅 Export Day {day?.day_number} to Calendar
-              </button>
+                <span className="hidden sm:inline">Export day {day?.day_number}</span>
+              </Button>
             </div>
-          </div>
+          </Panel>
         </div>
-      </div>
+      </header>
 
       {/* ── Emergency Panel ───────────────────────────────────── */}
       {showEmergency && (
-        <div className="absolute inset-0 z-20 flex items-end justify-center p-3 pointer-events-none">
+        <div className="absolute inset-0 z-sheet flex items-end justify-center p-3 pointer-events-none">
           <div className="max-w-xl w-full pointer-events-auto">
-            <div className="bg-surface/95 backdrop-blur-lg rounded-2xl p-4 border border-red-900/40 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 max-h-[75vh] overflow-y-auto">
+            <Panel
+              variant="glass"
+              radius="sheet-top"
+              padding="lg"
+              className="!border-danger-border max-h-[75vh] overflow-y-auto animate-in slide-in-from-bottom-4 duration-300 motion-reduce:animate-none"
+            >
               <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-foreground font-bold text-base">🛡️ Safety & Emergency</h2>
-                  <p className="text-muted text-xs">{destination}</p>
+                <div className="flex items-center gap-2">
+                  <Shield size={18} className="text-danger" aria-hidden="true" />
+                  <div>
+                    <h2 className="text-foreground font-bold text-body">Safety &amp; emergency</h2>
+                    <p className="text-muted text-small">{destination}</p>
+                  </div>
                 </div>
-                <button onClick={() => setShowEmergency(false)}
-                  className="text-muted-2 hover:text-foreground transition-colors text-xl leading-none">×</button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  icon={X}
+                  aria-label="Close safety panel"
+                  onClick={() => setShowEmergency(false)}
+                />
               </div>
 
               {emergencyLoading && (
-                <p className="text-muted-2 text-sm animate-pulse">Loading safety info…</p>
+                <p className="text-muted-soft text-body animate-pulse">Loading safety info…</p>
               )}
 
               {emergencyError && (
-                <p className="text-muted text-sm">
+                <p className="text-muted text-body">
                   Couldn&apos;t load safety info right now. In an emergency, dial{" "}
                   <span className="text-foreground font-semibold">112</span> — India&apos;s
                   national emergency number.
@@ -513,51 +603,59 @@ export default function TravelMap({
               {emergency && (
                 <div className="space-y-3">
                   <div className="bg-danger-bg border border-danger-border rounded-xl p-3">
-                    <p className="text-danger text-xs font-semibold mb-1">🚨 Emergency Number</p>
-                    <p className="text-foreground font-bold text-2xl">{emergency.emergency_number}</p>
+                    <p className="flex items-center gap-1.5 text-danger text-caption font-semibold mb-1">
+                      <Warning size={14} aria-hidden="true" /> Emergency number
+                    </p>
+                    <p className="text-foreground font-bold text-h1 font-mono">{emergency.emergency_number}</p>
                   </div>
 
                   <div>
-                    <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">🏥 Nearest Hospitals</p>
+                    <p className="flex items-center gap-1.5 text-muted-soft text-caption font-semibold mb-2">
+                      <MapPin size={13} aria-hidden="true" /> Nearest hospitals
+                    </p>
                     {emergency.hospitals.length > 0 ? (
                       <div className="space-y-2">
                         {emergency.hospitals.map((h, i) => (
                           <a key={i} href={h.maps_url} target="_blank" rel="noopener noreferrer"
-                            className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-muted-2 transition-colors">
-                            <p className="text-foreground text-sm font-semibold">{h.name}</p>
-                            <p className="text-muted text-xs">{h.address}</p>
-                            <p className="text-accent-light text-xs mt-1">View on map →</p>
+                            className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-border-subtle-hover transition-colors">
+                            <p className="text-foreground text-small font-semibold">{h.name}</p>
+                            <p className="text-muted text-caption">{h.address}</p>
+                            <p className="text-accent-light text-caption mt-1">View on map →</p>
                           </a>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-muted text-xs">
+                      <p className="text-muted text-caption">
                         Couldn&apos;t verify nearby hospitals. Search &quot;hospital near me&quot; on maps once you arrive.
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">👮 Police Station</p>
+                    <p className="flex items-center gap-1.5 text-muted-soft text-caption font-semibold mb-2">
+                      <MapPin size={13} aria-hidden="true" /> Police station
+                    </p>
                     {emergency.police_station ? (
                       <a href={emergency.police_station.maps_url} target="_blank" rel="noopener noreferrer"
-                        className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-muted-2 transition-colors">
-                        <p className="text-foreground text-sm font-semibold">{emergency.police_station.name}</p>
-                        <p className="text-muted text-xs">{emergency.police_station.address}</p>
-                        <p className="text-accent-light text-xs mt-1">View on map →</p>
+                        className="block bg-surface-2 border border-border rounded-xl p-3 hover:border-border-subtle-hover transition-colors">
+                        <p className="text-foreground text-small font-semibold">{emergency.police_station.name}</p>
+                        <p className="text-muted text-caption">{emergency.police_station.address}</p>
+                        <p className="text-accent-light text-caption mt-1">View on map →</p>
                       </a>
                     ) : (
-                      <p className="text-muted text-xs">Couldn&apos;t verify the nearest police station.</p>
+                      <p className="text-muted text-caption">Couldn&apos;t verify the nearest police station.</p>
                     )}
                   </div>
 
                   {emergency.safety_tips.length > 0 && (
                     <div>
-                      <p className="text-muted-2 text-xs font-semibold uppercase tracking-wider mb-2">💡 Safety Tips</p>
+                      <p className="flex items-center gap-1.5 text-muted-soft text-caption font-semibold mb-2">
+                        <Bulb size={13} aria-hidden="true" /> Safety tips
+                      </p>
                       <div className="space-y-1">
                         {emergency.safety_tips.map((tip, i) => (
-                          <p key={i} className="text-muted text-xs flex gap-2">
-                            <span className="text-muted-2 shrink-0">•</span>{tip}
+                          <p key={i} className="text-muted text-caption flex gap-2">
+                            <span className="text-muted-soft shrink-0">•</span>{tip}
                           </p>
                         ))}
                       </div>
@@ -565,123 +663,139 @@ export default function TravelMap({
                   )}
                 </div>
               )}
-            </div>
+            </Panel>
           </div>
         </div>
       )}
 
-      {/* ── Left legend ──────────────────────────────────────── */}
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
-        {safeSlots.map((s, i) => {
-          const tsi   = getTimeSlotIndex(s.time_of_day, i);
-          const num   = getDisplayNumber(s.time_of_day, i);
-          const label = TIME_LABELS[tsi] ?? s.time_of_day;
-          const icon  = TIME_ICONS[tsi] ?? "📍";
-          return (
-            <button key={i}
-              onClick={() => setSelectedSlot(selectedSlot === i ? null : i)}
-              className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium transition-all backdrop-blur-md border shadow-lg ${
-                selectedSlot === i
-                  ? "bg-accent text-white border-accent"
-                  : "bg-surface/85 text-muted border-border hover:border-accent hover:text-foreground"
-              }`}
-            >
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                style={{ background: PIN_COLORS[tsi] ?? "var(--muted)" }}>{num}</span>
-              <span className="hidden sm:block">{label}</span>
-              <span className="sm:hidden">{icon}</span>
-            </button>
-          );
-        })}
+      {/* ── Desktop left legend rail ─────────────────────────── */}
+      <div className="hidden lg:flex absolute left-3 top-36 bottom-32 z-chrome flex-col justify-center gap-2 pointer-events-none">
+        <div className="flex flex-col gap-2 pointer-events-auto">{renderLegendItems()}</div>
       </div>
 
-      {/* ── Bottom: slot detail OR refine bar ────────────────── */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 p-3">
-        <div className="max-w-xl mx-auto">
-          {slot ? (
-            <div className="bg-surface/95 backdrop-blur-lg rounded-2xl p-4 border border-border shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                    style={{ background: PIN_COLORS[getTimeSlotIndex(slot.time_of_day, selectedSlot!)] ?? "var(--muted)" }}>
-                    {getDisplayNumber(slot.time_of_day, selectedSlot!)}
-                  </span>
-                  <div className="min-w-0">
-                    <h2 className="text-foreground font-semibold truncate">{slot.place_name}</h2>
-                    <p className="text-muted text-xs capitalize">
-                      {slotTimeIdx !== null ? TIME_ICONS[slotTimeIdx] : "📍"} {slot.time_of_day} · {slot.category}
-                    </p>
+      {/* ── Bottom: mobile legend strip + slot detail OR refine bar ─ */}
+      <div className="absolute bottom-0 left-0 right-0 z-chrome p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none">
+        <div className="max-w-xl mx-auto flex flex-col gap-2">
+          {/* Mobile horizontal legend strip — replaces the old vertically
+              centered rail, which was unreachable by thumb and collided with
+              this sheet on small screens. */}
+          <div className="lg:hidden overflow-x-auto flex gap-2 pointer-events-auto [-webkit-overflow-scrolling:touch]">
+            {renderLegendItems()}
+          </div>
+
+          <div className="pointer-events-auto">
+            {slot ? (
+              <Panel variant="glass" radius="sheet-top" padding="lg" className="animate-in slide-in-from-bottom-4 duration-300 motion-reduce:animate-none">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-full flex items-center justify-center bg-foreground-strong text-on-emphasis text-caption font-bold shrink-0">
+                      {getDisplayNumber(slot.time_of_day, selectedSlot!)}
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-foreground font-semibold truncate">{slot.place_name}</h2>
+                      <p className="flex items-center gap-1 text-muted text-small capitalize">
+                        <SlotTimeIcon size={12} aria-hidden="true" />
+                        {slot.time_of_day} · {slot.category}
+                      </p>
+                    </div>
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    icon={X}
+                    aria-label="Close slot details"
+                    onClick={() => setSelectedSlot(null)}
+                    className="shrink-0"
+                  />
                 </div>
-                <button onClick={() => setSelectedSlot(null)}
-                  className="text-muted-2 hover:text-foreground transition-colors shrink-0 text-xl leading-none">×</button>
-              </div>
 
-              <p className="text-muted text-sm mb-3 leading-relaxed">{slot.description}</p>
+                <p className="text-muted text-body mb-3 leading-relaxed">{slot.description}</p>
 
-              <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
-                  <p className="text-muted-2 mb-0.5">⏱ Duration</p>
-                  <p className="text-foreground font-medium">{slot.estimated_duration}</p>
+                {/* Inline meta row — mono figures read as verified data
+                    rather than three equal-weight bordered stat cards. */}
+                <div className="flex items-center gap-3 text-small font-mono text-foreground border-y border-border-subtle py-2.5 mb-3 overflow-x-auto">
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <Clock size={14} className="text-muted-soft" aria-hidden="true" />
+                    {slot.estimated_duration}
+                  </span>
+                  <span className="w-px h-4 bg-border shrink-0" aria-hidden="true" />
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <Rupee size={14} className="text-muted-soft" aria-hidden="true" />
+                    {slot.estimated_cost}
+                  </span>
+                  <span className="w-px h-4 bg-border shrink-0" aria-hidden="true" />
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Bus size={14} className="text-muted-soft shrink-0" aria-hidden="true" />
+                    <span className="truncate">{slot.how_to_get_there.split(",")[0]}</span>
+                  </span>
                 </div>
-                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
-                  <p className="text-muted-2 mb-0.5">💰 Cost</p>
-                  <p className="text-foreground font-medium">{slot.estimated_cost}</p>
-                </div>
-                <div className="bg-surface-2 border border-border rounded-lg p-2.5">
-                  <p className="text-muted-2 mb-0.5">🚌 Transport</p>
-                  <p className="text-foreground font-medium line-clamp-1">{slot.how_to_get_there.split(",")[0]}</p>
-                </div>
-              </div>
 
-              <div className="rounded-lg p-2.5 text-xs mb-3" style={{ background: "rgba(57,112,145,0.1)", border: "1px solid rgba(57,112,145,0.2)" }}>
-                <p className="text-accent-light font-semibold mb-0.5">💡 Local tip</p>
-                <p className="text-muted">{slot.local_tip}</p>
-              </div>
-
-              {/* LocationIQ has no ratings/reviews/hours data, so the only
-                  evidence signal left is existence verification itself. */}
-              {slot.verified === false && (
-                <div className="mb-3">
-                  <p className="text-muted-2 text-[11px] leading-snug">
-                    📍 Approximate location — couldn&apos;t independently verify this spot.
+                <div className="rounded-lg p-2.5 text-small mb-3 bg-surface-2 border border-border-subtle">
+                  <p className="flex items-center gap-1.5 text-accent-light font-semibold mb-0.5">
+                    <Bulb size={14} aria-hidden="true" /> Local tip
                   </p>
+                  <p className="text-muted">{slot.local_tip}</p>
                 </div>
-              )}
 
-              {/* Directions — plain Google Maps deep link, live turn-by-turn beats
-                  an in-app fare estimate that goes stale the moment rates change */}
-              <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${slot.coordinates.lat},${slot.coordinates.lng}`}
-                target="_blank" rel="noopener noreferrer"
-                className="w-full py-2.5 rounded-xl text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                style={{ background: "var(--accent)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent-light)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--accent)")}
-              >
-                🧭 Get me there →
-              </a>
-            </div>
-          ) : (
-            <form onSubmit={handleRefine}
-              className="bg-surface/90 backdrop-blur-lg border border-border rounded-2xl p-2 flex gap-2 shadow-xl">
-              <input
-                value={refineMsg}
-                onChange={(e) => setRefineMsg(e.target.value)}
-                placeholder="Tap a pin to explore · or ask to change something…"
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-foreground placeholder-muted-2 outline-none"
-                disabled={loading}
-              />
-              <button type="submit" disabled={loading || !refineMsg.trim()}
-                className="text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 transition-colors shrink-0"
-                style={{ background: "var(--accent)" }}
-              >
-                {loading ? "…" : "Update →"}
-              </button>
-            </form>
-          )}
+                {/* LocationIQ has no ratings/reviews/hours data, so the only
+                    evidence signal left is existence verification itself. */}
+                {slot.verified === false && (
+                  <p className="flex items-center gap-1.5 text-muted-soft text-caption leading-snug mb-3">
+                    <MapPin size={13} aria-hidden="true" />
+                    Approximate location — couldn&apos;t independently verify this spot.
+                  </p>
+                )}
+
+                {/* Directions — plain Google Maps deep link, live turn-by-turn
+                    beats an in-app fare estimate that goes stale the moment
+                    rates change. Routed through Button's onClick (rather than
+                    a plain <a>) so it stays a real Button primitive; a
+                    same-tick window.open() from a click handler isn't
+                    blocked by popup blockers. */}
+                <Button
+                  type="button"
+                  variant="primary"
+                  pill
+                  fullWidth
+                  icon={Navigation}
+                  onClick={() =>
+                    window.open(
+                      `https://www.google.com/maps/dir/?api=1&destination=${slot.coordinates.lat},${slot.coordinates.lng}`,
+                      "_blank",
+                      "noopener,noreferrer"
+                    )
+                  }
+                >
+                  Get me there
+                </Button>
+              </Panel>
+            ) : (
+              <Panel variant="glass" radius="2xl" padding="none" className="p-2 flex gap-2">
+                <form onSubmit={handleRefine} className="flex-1 flex gap-2">
+                  <input
+                    value={refineMsg}
+                    onChange={(e) => setRefineMsg(e.target.value)}
+                    placeholder="Tap a pin to explore · or ask to change something…"
+                    className="flex-1 bg-transparent px-3 py-2 text-body text-foreground placeholder-muted-soft outline-none"
+                    disabled={loading}
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={loading || !refineMsg.trim()}
+                    loading={loading}
+                    className="shrink-0"
+                  >
+                    Update
+                  </Button>
+                </form>
+              </Panel>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
