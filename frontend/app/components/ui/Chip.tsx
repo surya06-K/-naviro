@@ -51,7 +51,7 @@ export default function Chip({
 
   const shapeAndTone = isColumn
     ? [
-        "flex-col gap-1.5 text-small rounded-2xl px-5 py-4 border",
+        "flex-col gap-1 text-small text-center rounded-2xl px-2 py-3.5 border",
         selected
           ? "bg-foreground-strong text-on-emphasis border-foreground-strong"
           : "bg-surface text-muted-soft border-border-subtle hover:border-border-subtle-hover",
@@ -72,10 +72,12 @@ export default function Chip({
       {...props}
     >
       {showCheckWhenSelected && selected && <Check size={13} aria-hidden="true" />}
-      {IconComp && <IconComp size={isColumn ? 18 : 15} aria-hidden="true" />}
+      {IconComp && <IconComp size={isColumn ? 16 : 15} aria-hidden="true" />}
       <span className={selected && strikethroughWhenSelected ? "line-through" : ""}>{children}</span>
       {subtitle && (
-        <span className={selected ? "text-on-emphasis/70" : "text-muted-soft"}>{subtitle}</span>
+        <span className={`text-caption ${selected ? "text-on-emphasis/70" : "text-muted-soft"}`}>
+          {subtitle}
+        </span>
       )}
     </button>
   );
