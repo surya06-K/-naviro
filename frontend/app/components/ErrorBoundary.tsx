@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { Warning } from "@/app/components/icons";
+import Button from "@/app/components/ui/Button";
 
 interface Props {
   children: React.ReactNode;
@@ -28,18 +30,18 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback != null) return this.props.fallback;
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center" style={{ background: "#0d1117" }}>
-          <p className="text-3xl mb-4">⚠️</p>
-          <h2 className="font-bold text-xl mb-2" style={{ color: "#e6edf3" }}>Something went wrong</h2>
-          <p className="text-sm mb-6 max-w-sm" style={{ color: "#8b949e" }}>{this.state.message}</p>
-          <button
+        <main id="main-content" className="min-h-dvh flex flex-col items-center justify-center px-4 text-center bg-background">
+          <Warning size={32} className="mb-4 text-warning" aria-hidden="true" />
+          <h2 className="font-bold text-xl mb-2 text-foreground">Something went wrong</h2>
+          <p className="text-sm mb-6 max-w-sm text-muted">{this.state.message}</p>
+          <Button
+            variant="primary"
+            pill
             onClick={() => this.setState({ hasError: false, message: "" })}
-            className="px-6 py-3 text-white rounded-2xl font-semibold text-sm transition-colors"
-            style={{ background: "#397091" }}
           >
             Try again
-          </button>
-        </div>
+          </Button>
+        </main>
       );
     }
     return this.props.children;
