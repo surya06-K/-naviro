@@ -1,32 +1,10 @@
 "use client";
 
 import { useState } from "react";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Slot {
-  time_of_day: string;
-  place_name: string;
-  description: string;
-  category: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  estimated_cost: string;
-  local_tip: string;
-  coordinates: { lat: number; lng: number };
-}
-
-interface LiveSuggestion {
-  place_name: string;
-  why_now: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  local_tip: string;
-}
-
-interface LiveResponse {
-  context: string;
-  suggestions: LiveSuggestion[];
-}
+import type { Slot, LiveResponse } from "@/app/types";
+import { Broadcast, Refresh, Bus, Bulb, TIME_OF_DAY_ICONS } from "@/app/components/icons";
+import Chip from "@/app/components/ui/Chip";
+import Button from "@/app/components/ui/Button";
 
 interface Props {
   destination: string;
@@ -136,48 +114,44 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <main id="main-content" className="min-h-dvh bg-background flex flex-col">
       {/* Header */}
       <div className="border-b border-border px-4 py-3 flex items-center gap-3">
         <button
           onClick={onBack}
-          className="text-muted-2 hover:text-foreground transition-colors text-sm flex items-center gap-1.5"
+          className="text-muted-soft hover:text-foreground transition-colors text-sm flex items-center gap-1.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           ← Back to map
         </button>
         <div className="h-4 w-px bg-border" />
         <div>
-          <p className="text-muted-2 text-[10px] font-semibold tracking-widest uppercase">Naviro</p>
+          <p className="text-muted-soft text-caption font-semibold">Naviro</p>
           <p className="text-foreground text-sm font-bold leading-tight">{destination}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          <span className="text-success text-xs font-semibold">Live Mode</span>
+          <span className="w-2 h-2 rounded-full bg-accent animate-pulse motion-reduce:animate-none" />
+          <span className="text-accent text-xs font-semibold">Live Mode</span>
         </div>
       </div>
 
       {/* Tab switcher */}
       <div className="flex gap-1 p-3 border-b border-border">
-        <button
+        <Chip
+          selected={tab === "live"}
           onClick={() => setTab("live")}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            tab === "live"
-              ? "bg-foreground-strong text-on-emphasis"
-              : "bg-surface text-muted hover:text-foreground border border-border"
-          }`}
+          icon={Broadcast}
+          className="flex-1 justify-center rounded-xl"
         >
-          🔴 What to do now
-        </button>
-        <button
+          What to do now
+        </Chip>
+        <Chip
+          selected={tab === "replan"}
           onClick={() => setTab("replan")}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            tab === "replan"
-              ? "bg-foreground-strong text-on-emphasis"
-              : "bg-surface text-muted hover:text-foreground border border-border"
-          }`}
+          icon={Refresh}
+          className="flex-1 justify-center rounded-xl"
         >
-          🔄 Replan my day
-        </button>
+          Replan my day
+        </Chip>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 max-w-xl mx-auto w-full">
@@ -185,23 +159,20 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
         {/* ── Visited today (shared between tabs) ─────────────────── */}
         {currentDaySlots.length > 0 && (
           <div>
-            <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">
+            <p className="text-caption text-muted-soft mb-2">
               Places on today&apos;s plan — tick what you&apos;ve visited
             </p>
             <div className="flex flex-wrap gap-2">
               {currentDaySlots.map((s) => (
-                <button
+                <Chip
                   key={s.place_name}
-                  type="button"
+                  selected={visitedSlots.includes(s.place_name)}
+                  showCheckWhenSelected
+                  strikethroughWhenSelected
                   onClick={() => toggleVisited(s.place_name)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-                    visitedSlots.includes(s.place_name)
-                      ? "bg-foreground-strong text-on-emphasis border-foreground-strong line-through opacity-60"
-                      : "bg-surface text-foreground border-border hover:border-border-subtle-hover"
-                  }`}
                 >
-                  {visitedSlots.includes(s.place_name) ? "✓" : "○"} {s.place_name}
-                </button>
+                  {s.place_name}
+                </Chip>
               ))}
             </div>
           </div>
@@ -213,40 +184,37 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
             <form onSubmit={handleLive} className="space-y-4">
               {/* Current location */}
               <div>
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">Where are you right now</p>
+                <p className="text-caption text-muted-soft mb-2">Where are you right now</p>
                 <input
                   value={currentLoc}
                   onChange={(e) => setCurrentLoc(e.target.value)}
                   placeholder="e.g. Banjara Hills, near the café…"
-                  className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-2 outline-none focus:border-border-focus text-sm transition-colors"
+                  className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-soft outline-none text-sm transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring"
                   disabled={liveLoading}
                 />
               </div>
 
               {/* Time of day */}
               <div>
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">Time of day</p>
+                <p className="text-caption text-muted-soft mb-2">Time of day</p>
                 <div className="flex gap-2">
                   {["morning", "afternoon", "evening"].map((t) => (
-                    <button
+                    <Chip
                       key={t}
-                      type="button"
+                      selected={timeOfDay === t}
                       onClick={() => setTimeOfDay(t)}
-                      className={`flex-1 py-2 rounded-xl border text-xs font-semibold capitalize transition-all ${
-                        timeOfDay === t
-                          ? "bg-foreground-strong text-on-emphasis border-foreground-strong"
-                          : "bg-surface text-muted border-border hover:border-border-subtle-hover hover:text-foreground"
-                      }`}
+                      icon={TIME_OF_DAY_ICONS[t]}
+                      className="flex-1 justify-center rounded-xl capitalize"
                     >
-                      {t === "morning" ? "🌅" : t === "afternoon" ? "☀️" : "🌙"} {t}
-                    </button>
+                      {t}
+                    </Chip>
                   ))}
                 </div>
               </div>
 
               {/* Hours remaining */}
               <div>
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">
+                <p className="text-caption text-muted-soft mb-2">
                   Hours left in your trip
                 </p>
                 <div className="flex items-center gap-3">
@@ -256,9 +224,9 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
                     max={12}
                     value={hoursLeft}
                     onChange={(e) => setHoursLeft(Number(e.target.value))}
-                    className="flex-1 accent-foreground-strong"
+                    className="flex-1 accent-accent"
                   />
-                  <span className="text-foreground font-bold text-sm w-16 text-right">
+                  <span className="text-foreground font-bold text-sm w-16 text-right font-mono">
                     {hoursLeft} hr{hoursLeft !== 1 ? "s" : ""}
                   </span>
                 </div>
@@ -266,13 +234,16 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
 
               {liveError && <p className="text-danger text-sm">{liveError}</p>}
 
-              <button
+              <Button
                 type="submit"
+                variant="primary"
+                pill
+                fullWidth
+                size="lg"
                 disabled={!currentLoc.trim() || liveLoading}
-                className="w-full bg-foreground-strong text-on-emphasis py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-foreground-strong transition-colors"
               >
                 {liveLoading ? "Finding the best spots…" : "Tell me what to do →"}
-              </button>
+              </Button>
             </form>
 
             {/* Live suggestions */}
@@ -285,13 +256,16 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
                   <div key={i} className="bg-surface border border-border rounded-2xl p-4">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <h3 className="text-foreground font-semibold text-base">{s.place_name}</h3>
-                      <span className="text-muted-2 text-xs shrink-0 mt-1">{s.estimated_duration}</span>
+                      <span className="text-muted-soft text-xs shrink-0 mt-1 font-mono">{s.estimated_duration}</span>
                     </div>
-                    <p className="text-success text-xs font-medium mb-2">{s.why_now}</p>
-                    <p className="text-muted text-xs mb-2">🚌 {s.how_to_get_there}</p>
-                    <div className="bg-warning-bg border border-warning-border rounded-lg p-2 text-xs">
-                      <span className="text-warning font-semibold">💡 </span>
-                      <span className="text-amber-100/80">{s.local_tip}</span>
+                    <p className="text-accent text-xs font-medium mb-2">{s.why_now}</p>
+                    <p className="text-muted text-xs mb-2 flex items-center gap-1.5">
+                      <Bus size={14} aria-hidden="true" />
+                      {s.how_to_get_there}
+                    </p>
+                    <div className="bg-warning-bg border border-warning-border rounded-lg p-2 text-xs flex items-start gap-1.5">
+                      <Bulb size={14} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="text-warning/80">{s.local_tip}</span>
                     </div>
                   </div>
                 ))}
@@ -306,7 +280,7 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
             <form onSubmit={handleReplan} className="space-y-4">
               {/* Disruption */}
               <div>
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">What happened?</p>
+                <p className="text-caption text-muted-soft mb-2">What happened?</p>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {[
                     "It's raining heavily",
@@ -316,61 +290,54 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
                     "Not feeling well — need something easy",
                     "Budget is tight today",
                   ].map((preset) => (
-                    <button
+                    <Chip
                       key={preset}
-                      type="button"
+                      selected={disruption === preset}
                       onClick={() => setDisruption(preset)}
-                      className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-                        disruption === preset
-                          ? "bg-foreground-strong text-on-emphasis border-foreground-strong"
-                          : "bg-surface text-muted border-border hover:border-border-subtle-hover hover:text-foreground"
-                      }`}
                     >
                       {preset}
-                    </button>
+                    </Chip>
                   ))}
                 </div>
                 <input
                   value={disruption}
                   onChange={(e) => setDisruption(e.target.value)}
                   placeholder="Or type something else…"
-                  className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-2 outline-none focus:border-border-focus text-sm transition-colors"
+                  className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-soft outline-none text-sm transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring"
                   disabled={replanLoading}
                 />
               </div>
 
               {/* Time remaining */}
               <div>
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">Time left today</p>
+                <p className="text-caption text-muted-soft mb-2">Time left today</p>
                 <div className="flex gap-2 flex-wrap">
                   {["1 hour", "2 hours", "3 hours", "4 hours", "5+ hours"].map((t) => (
-                    <button
+                    <Chip
                       key={t}
-                      type="button"
+                      selected={timeRemaining === t}
                       onClick={() => setTimeRemaining(t)}
-                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
-                        timeRemaining === t
-                          ? "bg-foreground-strong text-on-emphasis border-foreground-strong"
-                          : "bg-surface text-muted border-border hover:border-border-subtle-hover"
-                      }`}
                     >
                       {t}
-                    </button>
+                    </Chip>
                   ))}
                 </div>
               </div>
 
               {replanError && <p className="text-danger text-sm">{replanError}</p>}
 
-              <button
+              <Button
                 type="submit"
+                variant="primary"
+                pill
+                fullWidth
+                size="lg"
                 disabled={!disruption.trim() || replanLoading}
-                className="w-full bg-foreground-strong text-on-emphasis py-3.5 rounded-2xl font-semibold text-sm disabled:opacity-40 hover:bg-foreground-strong transition-colors"
               >
                 {replanLoading ? "Rebuilding your day…" : "Replan my day →"}
-              </button>
+              </Button>
 
-              <p className="text-muted-2 text-xs text-center">
+              <p className="text-caption text-muted-soft text-center">
                 This will update the map with a new plan for today
               </p>
             </form>
@@ -378,7 +345,7 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
             {/* Current plan summary */}
             {currentDaySlots.length > 0 && (
               <div className="pb-6">
-                <p className="text-muted-2 text-xs uppercase tracking-widest mb-2">Today&apos;s current plan</p>
+                <p className="text-caption text-muted-soft mb-2">Today&apos;s current plan</p>
                 <div className="space-y-2">
                   {currentDaySlots.map((s, i) => (
                     <div key={i}
@@ -388,12 +355,12 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
                           : "border-border bg-surface"
                       }`}
                     >
-                      <span className="text-muted-2 text-xs capitalize w-16 shrink-0">{s.time_of_day}</span>
+                      <span className="text-muted-soft text-xs capitalize w-16 shrink-0">{s.time_of_day}</span>
                       <span className={`text-foreground font-medium ${visitedSlots.includes(s.place_name) ? "line-through" : ""}`}>
                         {s.place_name}
                       </span>
                       {visitedSlots.includes(s.place_name) && (
-                        <span className="ml-auto text-muted-2 text-xs">done</span>
+                        <span className="ml-auto text-muted-soft text-xs">done</span>
                       )}
                     </div>
                   ))}
@@ -403,6 +370,6 @@ export default function LiveMode({ destination, currentDaySlots, onReplan, onBac
           </>
         )}
       </div>
-    </div>
+    </main>
   );
 }

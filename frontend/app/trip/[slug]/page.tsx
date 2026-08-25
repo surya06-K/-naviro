@@ -3,40 +3,17 @@
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-
-// ─── Types (mirrors frontend/app/page.tsx — no shared types file in this repo) ─
-interface Slot {
-  time_of_day: string;
-  place_name: string;
-  description: string;
-  category: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  estimated_cost: string;
-  local_tip: string;
-  coordinates: { lat: number; lng: number };
-}
-
-interface Day {
-  day_number: number;
-  day_title: string;
-  slots: Slot[];
-}
-
-interface Itinerary {
-  destination: string;
-  total_days: number;
-  summary: string;
-  days: Day[];
-}
+import { useRouter } from "next/navigation";
+import type { Day, Itinerary } from "@/app/types";
+import Button from "@/app/components/ui/Button";
 
 // ─── Dynamic import — Leaflet touches `window`, so this can never render on the server ─
 const TravelMap = dynamic(() => import("../../components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center" style={{ background: "#0a0a0a" }}>
-      <div className="text-sm animate-pulse" style={{ color: "#333" }}>Loading map…</div>
-    </div>
+    <main id="main-content" className="w-full min-h-dvh flex items-center justify-center bg-background">
+      <div className="text-sm animate-pulse text-muted-soft">Loading map…</div>
+    </main>
   ),
 });
 
@@ -59,6 +36,7 @@ export default function SharedTripPage({
   // with React's `use()` (see frontend/node_modules/next/dist/docs/01-app/
   // 03-api-reference/03-file-conventions/dynamic-routes.md).
   const { slug } = use(params);
+  const router = useRouter();
 
   const [status, setStatus] = useState<Status>("loading");
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
@@ -123,43 +101,36 @@ export default function SharedTripPage({
 
   if (status === "loading") {
     return (
-      <div className="w-full h-screen flex items-center justify-center" style={{ background: "#0a0a0a" }}>
-        <div className="text-sm animate-pulse" style={{ color: "#333" }}>Loading trip…</div>
-      </div>
+      <main id="main-content" className="w-full min-h-dvh flex items-center justify-center bg-background">
+        <div className="text-sm animate-pulse text-muted-soft">Loading trip…</div>
+      </main>
     );
   }
 
   if (status === "not-found") {
     return (
-      <div className="w-full h-screen flex flex-col items-center justify-center gap-4 text-center px-6" style={{ background: "#0a0a0a" }}>
-        <p className="text-lg font-medium" style={{ color: "#ddd" }}>
+      <main id="main-content" className="w-full min-h-dvh flex flex-col items-center justify-center gap-4 text-center px-6 bg-background">
+        <p className="text-lg font-medium text-foreground">
           This trip link doesn&apos;t exist or has expired.
         </p>
         <Link
           href="/"
-          className="text-sm underline underline-offset-2 transition-colors duration-200"
-          style={{ color: "#888" }}
+          className="text-sm text-muted underline underline-offset-2 transition-colors duration-200 hover:text-foreground-strong rounded outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           Plan a new trip →
         </Link>
-      </div>
+      </main>
     );
   }
 
   if (status === "error" || !itinerary) {
     return (
-      <div className="w-full h-screen flex flex-col items-center justify-center gap-4 text-center px-6" style={{ background: "#0a0a0a" }}>
-        <p className="text-sm" style={{ color: "#e55" }}>Couldn&apos;t load this trip.</p>
-        <button
-          onClick={() => setRetryCount((c) => c + 1)}
-          className="text-sm underline underline-offset-2 transition-colors duration-200"
-          style={{ color: "#888" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "#fff"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}
-        >
+      <main id="main-content" className="w-full min-h-dvh flex flex-col items-center justify-center gap-4 text-center px-6 bg-background">
+        <p className="text-sm text-danger">Couldn&apos;t load this trip.</p>
+        <Button variant="ghost" size="sm" onClick={() => setRetryCount((c) => c + 1)}>
           Try again
-        </button>
-      </div>
+        </Button>
+      </main>
     );
   }
 
@@ -174,6 +145,7 @@ export default function SharedTripPage({
       onRefine={handleRefine}
       onDaysUpdate={setLiveDays}
       loading={refining}
+      onExit={() => router.push("/")}
     />
   );
 }

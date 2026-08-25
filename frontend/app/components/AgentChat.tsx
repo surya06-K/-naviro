@@ -1,37 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-// Mirrors page.tsx's Itinerary/Day/Slot shape exactly, plus the `verified`
-// field TravelMap.tsx carries — set server-side by LocationIQ verification,
-// never by the LLM. Absent on older cached itineraries; false means the spot
-// couldn't be confirmed as real even after one repair attempt.
-export interface Slot {
-  time_of_day: string;
-  place_name: string;
-  description: string;
-  category: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  estimated_cost: string;
-  local_tip: string;
-  coordinates: { lat: number; lng: number };
-  verified?: boolean;
-}
-
-export interface Day {
-  day_number: number;
-  day_title: string;
-  slots: Slot[];
-}
-
-export interface Itinerary {
-  destination: string;
-  total_days: number;
-  summary: string;
-  days: Day[];
-}
+import type { Itinerary } from "@/app/types";
+import Button from "@/app/components/ui/Button";
 
 export interface Props {
   // Called once a message's response includes a complete itinerary — the
@@ -212,19 +183,19 @@ export default function AgentChat({ onItineraryReady, onBack }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0d1117]">
+    <main id="main-content" className="flex flex-col min-h-dvh bg-background">
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-[#2d333b] bg-[#161b22]/90 backdrop-blur-lg">
+      <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border bg-surface/90 backdrop-blur-lg">
         <button
           onClick={onBack}
-          className="shrink-0 -mx-1 rounded-lg px-1 py-0.5 text-sm text-[#8b949e] outline-none transition-colors hover:text-[#e6edf3] focus-visible:ring-2 focus-visible:ring-[#397091]"
+          className="shrink-0 -mx-1 rounded-lg px-1 py-0.5 text-sm text-muted outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           ← Back
         </button>
-        <div className="h-4 w-px shrink-0 bg-[#2d333b]" />
+        <div className="h-4 w-px shrink-0 bg-border" />
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[#397091]">Naviro</p>
-          <p className="truncate text-sm font-bold leading-tight text-[#e6edf3]">Plan by chat</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-accent">Naviro</p>
+          <p className="truncate text-sm font-bold leading-tight text-foreground">Plan by chat</p>
         </div>
       </div>
 
@@ -234,7 +205,7 @@ export default function AgentChat({ onItineraryReady, onBack }: Props) {
         aria-live="polite"
         aria-label="Conversation with Naviro"
         tabIndex={0}
-        className="flex-1 overflow-y-auto px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#397091]"
+        className="flex-1 overflow-y-auto px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring"
       >
         <div className="mx-auto w-full max-w-xl space-y-3">
           {messages.map((m, i) => (
@@ -253,7 +224,7 @@ export default function AgentChat({ onItineraryReady, onBack }: Props) {
       {/* ── Input bar ──────────────────────────────────────── */}
       <form
         onSubmit={handleSubmit}
-        className="shrink-0 border-t border-[#2d333b] bg-[#161b22]/90 p-3 backdrop-blur-lg"
+        className="shrink-0 border-t border-border bg-surface/90 p-3 backdrop-blur-lg"
       >
         <div className="mx-auto flex max-w-xl gap-2">
           <input
@@ -264,18 +235,19 @@ export default function AgentChat({ onItineraryReady, onBack }: Props) {
             maxLength={2000}
             disabled={thinking}
             aria-label="Message Naviro"
-            className="flex-1 rounded-xl border border-[#2d333b] bg-[#1c2128] px-4 py-3 text-sm text-[#e6edf3] outline-none transition-colors placeholder:text-[#484f58] disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-[#397091]"
+            className="flex-1 rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-soft disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-focus-ring"
           />
-          <button
+          <Button
             type="submit"
+            variant="primary"
             disabled={thinking || !input.trim()}
-            className="shrink-0 rounded-xl bg-[#397091] px-4 py-3 text-sm font-semibold text-white outline-none transition-colors hover:bg-[#4a8ab0] disabled:opacity-40 disabled:hover:bg-[#397091] focus-visible:ring-2 focus-visible:ring-[#4a8ab0] focus-visible:ring-offset-2 focus-visible:ring-offset-[#161b22]"
+            className="shrink-0"
           >
             {thinking ? "…" : "Send"}
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </main>
   );
 }
 
@@ -294,12 +266,12 @@ function MessageBubble({
   if (message.isError) {
     return (
       <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-red-800/40 bg-red-900/20 px-4 py-3">
-          <p className="text-sm leading-relaxed text-red-300">{message.text}</p>
+        <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-danger-border bg-danger-bg px-4 py-3">
+          <p className="text-sm leading-relaxed text-danger">{message.text}</p>
           {showRetry && (
             <button
               onClick={onRetry}
-              className="mt-2 rounded text-xs font-semibold text-red-300 underline underline-offset-2 outline-none transition-colors hover:text-red-100 focus-visible:ring-2 focus-visible:ring-red-400"
+              className="mt-2 rounded text-xs font-semibold text-danger underline underline-offset-2 outline-none transition-colors hover:opacity-80 focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               Try again
             </button>
@@ -314,10 +286,9 @@ function MessageBubble({
       <div
         className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed ${
           isUser
-            ? "rounded-2xl rounded-br-md text-white"
-            : "rounded-2xl rounded-bl-md border border-[#2d333b] bg-[#161b22] text-[#e6edf3]"
+            ? "rounded-2xl rounded-br-md bg-accent text-white"
+            : "rounded-2xl rounded-bl-md border border-border bg-surface text-foreground"
         }`}
-        style={isUser ? { background: "#397091" } : undefined}
       >
         {message.text}
       </div>
@@ -334,17 +305,17 @@ function MessageBubble({
 function ThinkingBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-start" role="status" aria-label="Naviro is thinking">
-      <div className="flex max-w-[85%] items-center gap-3 rounded-2xl rounded-bl-md border border-[#2d333b] bg-[#161b22] px-4 py-3">
+      <div className="flex max-w-[85%] items-center gap-3 rounded-2xl rounded-bl-md border border-border bg-surface px-4 py-3">
         <div className="flex gap-1" aria-hidden="true">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8b949e] motion-reduce:animate-none"
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted motion-reduce:animate-none"
               style={{ animationDelay: `${i * 150}ms` }}
             />
           ))}
         </div>
-        <span className="text-xs text-[#8b949e]" aria-hidden="true">
+        <span className="text-xs text-muted" aria-hidden="true">
           {text}
         </span>
       </div>
