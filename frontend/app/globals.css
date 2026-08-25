@@ -1,52 +1,71 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Naviro design tokens — premium/minimal pass (2026-08-25)
+
+   Consolidates what were previously TWO conflicting neutral-gray families:
+   the cool blue-black --background/--surface/--border set below, and a
+   separate near-black neutral set (--border-subtle #1a1a1a, #333333,
+   #444444) plus hardcoded #0a0a0a/#888/#333 scattered across AgentChat.tsx,
+   trip/[slug]/page.tsx, and ErrorBoundary.tsx. Mixing a cool family with a
+   neutral family is what read as "half-finished" — every hex below now
+   derives from --background's own hue, and every screen in the app is
+   expected to import from here. No component should hardcode a color.
+   ───────────────────────────────────────────────────────────────────────── */
+
 :root {
-  /* Deep charcoal + steel blue — core surfaces (shared by the map view and,
-     after the Step 4 application pass, the rest of the app) */
+  /* ── Core surfaces — cool blue-black, one hue family ─────────────────── */
   --background: #0d1117;
   --foreground: #e6edf3;
   --surface: #161b22;
   --surface-2: #1c2128;
   --border: #2d333b;
+
+  /* Hairline borders sitting directly on --background (landing inputs,
+     hero cards, Live Mode inputs) — quieter than --border, which is tuned
+     for the lighter --surface/--surface-2 panels. Recolored into the same
+     cool hue as --background/--border (was a mismatched neutral
+     #1a1a1a/#333333 family). */
+  --border-subtle: #1c222c;
+  --border-subtle-hover: #2a323d;
+
+  /* ── Text ──────────────────────────────────────────────────────────────
+     One de-emphasized tier, not two. The previous --muted-2 (#7d8590,
+     5.07:1 on --background) and --muted-3 (#747d88, 4.53:1) sat 0.5:1
+     apart in contrast — a difference no one could actually perceive, kept
+     apart only by a past piecemeal contrast fix. Merged to the safer,
+     lighter value. */
   --muted: #8b949e;
-  --accent: #397091;
-  --accent-light: #4a8ab0;
-  --accent-glow: rgba(57, 112, 145, 0.25);
+  --muted-soft: #7d8590;
 
-  /* Dimmer text tiers, darkest first. Converges TravelMap's #484f58 captions,
-     LiveMode's zinc-500/600 labels, and the landing page's #555/#666/#2a2a2a/
-     #3a3a3a chip/sub-caption text. The original values here (kept unchanged
-     from the first token pass) failed WCAG AA against --background (2.28:1
-     and 1.32:1 respectively; AA needs 4.5:1 for normal text) — lightened to
-     #7d8590 (5.07:1) and #747d88 (4.53:1) so de-emphasized text stays
-     readable rather than "confirmed unreadable, flagged for later." Only a
-     genuine logo/wordmark use is exempt from this under WCAG; real caption
-     content is not. */
-  --muted-2: #7d8590;
-  --muted-3: #747d88;
-
-  /* Hairline borders for near-black surfaces (landing-page cards/inputs,
-     Live Mode inputs) — quieter than --border, which is tuned for the
-     lighter #161b22/#1c2128 panels. */
-  --border-subtle: #1a1a1a;
-  --border-subtle-hover: #333333;
-  --border-focus: #444444;
-
-  /* Peak emphasis: the white-fill / dark-text inversion used for selected
-     chips, tab switchers, and primary pill buttons on the landing page and
-     in Live Mode. */
+  /* Peak emphasis — white-fill / dark-text inversion for selected chips,
+     tab switchers, primary pill buttons. */
   --foreground-strong: #ffffff;
   --on-emphasis: #000000;
 
-  /* Translucent white overlays on dark surfaces — landing-page selected
-     states, hover glows, and hairline dividers. */
+  /* ── Brand accent — the ONE accent color in the app ───────────────────
+     Every other color on this page is a neutral or a status color; nothing
+     else may double as a brand/selection color. (Two things were doing
+     that before this pass: --success as Live Mode's badge color, and a
+     3-hue pin palette on the map — both retired below.) */
+  --accent: #397091;
+  --accent-light: #4a8ab0;
+  --accent-glow: rgba(57, 112, 145, 0.25);
+  /* Focus rings use the accent, not a gray — a focus indicator's whole job
+     is to be seen. Replaces the old --border-focus (#444444), a low-
+     contrast gray barely different from a plain hover state. */
+  --focus-ring: var(--accent-light);
+
+  /* Translucent white overlays on dark surfaces — hover glows, hairline
+     dividers, selected-state washes over photographic backdrops. */
   --overlay-subtle: rgba(255, 255, 255, 0.03);
   --overlay: rgba(255, 255, 255, 0.08);
   --overlay-strong: rgba(255, 255, 255, 0.13);
 
-  /* Semantic status colors. Each pairs a solid text/icon tone with a
-     translucent bg + border wash for badges and callouts — kept separate
-     from the core palette on purpose (Live badge, safety warnings, etc.). */
+  /* ── Status colors — status-only, never a brand/selection color ───────
+     Each pairs a solid text/icon tone with a translucent bg + border wash
+     for badges and callouts (safety warnings, error states, the visited-
+     today confirmation) — kept separate from the brand accent on purpose. */
   --success: #4ade80;
   --success-bg: rgba(20, 83, 45, 0.3);
   --success-border: rgba(22, 101, 52, 0.5);
@@ -57,30 +76,39 @@
   --danger-bg: rgba(127, 29, 29, 0.35);
   --danger-border: rgba(185, 28, 28, 0.45);
 
-  /* Categorical map-pin colors (morning/afternoon/evening) — decorative
-     marker colors, independent of the semantic status colors above. */
-  --pin-morning: #f97316;
-  --pin-afternoon: #7c3aed;
-  --pin-evening: #0ea5e9;
+  /* ── Elevation — tinted shadows, not pure black at low opacity ────────
+     Tinted toward --background's own hue so elevation reads as depth in
+     the same world, not a generic UI-kit shadow dropped on top. Exposed
+     to Tailwind's shadow-sm/md/lg utilities via the @theme block below —
+     named --shadow-color-* here (not --shadow-*) so the @theme mapping
+     doesn't self-reference. */
+  --shadow-color-sm: 0 1px 2px rgba(7, 12, 20, 0.35);
+  --shadow-color-md: 0 8px 24px rgba(7, 12, 20, 0.45);
+  --shadow-color-lg: 0 16px 48px rgba(7, 12, 20, 0.55);
+  --shadow-color-glow-accent: 0 0 24px rgba(57, 112, 145, 0.35);
+
+  /* Surface grain — breaks flat digital fills without fighting photographic
+     imagery. Applied via the .grain-overlay utility class below. */
+  --grain-opacity: 0.035;
 }
 
 @theme inline {
+  /* Colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-subtle-hover: var(--border-subtle-hover);
   --color-muted: var(--muted);
-  --color-muted-2: var(--muted-2);
-  --color-muted-3: var(--muted-3);
+  --color-muted-soft: var(--muted-soft);
+  --color-foreground-strong: var(--foreground-strong);
+  --color-on-emphasis: var(--on-emphasis);
   --color-accent: var(--accent);
   --color-accent-light: var(--accent-light);
   --color-accent-glow: var(--accent-glow);
-  --color-border-subtle: var(--border-subtle);
-  --color-border-subtle-hover: var(--border-subtle-hover);
-  --color-border-focus: var(--border-focus);
-  --color-foreground-strong: var(--foreground-strong);
-  --color-on-emphasis: var(--on-emphasis);
+  --color-focus-ring: var(--focus-ring);
   --color-overlay-subtle: var(--overlay-subtle);
   --color-overlay: var(--overlay);
   --color-overlay-strong: var(--overlay-strong);
@@ -93,11 +121,43 @@
   --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
   --color-danger-border: var(--danger-border);
-  --color-pin-morning: var(--pin-morning);
-  --color-pin-afternoon: var(--pin-afternoon);
-  --color-pin-evening: var(--pin-evening);
+
+  /* Fonts */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Shadows — overrides Tailwind's default shadow-sm/md/lg utility values */
+  --shadow-sm: var(--shadow-color-sm);
+  --shadow-md: var(--shadow-color-md);
+  --shadow-lg: var(--shadow-color-lg);
+
+  /* Type scale — nothing below 11.5px. Generates text-display / text-h1 /
+     text-h2 / text-body / text-small / text-caption utilities, replacing
+     the ad-hoc text-[10px]…text-4xl sizing scattered through every screen. */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.03em;
+  --text-h1: 1.875rem;
+  --text-h1--line-height: 1.15;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.3;
+  --text-h2--letter-spacing: -0.01em;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.6;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.5;
+  --text-caption: 0.71875rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: 0.02em;
+
+  /* z-index scale — z-map/z-chrome/z-sheet/z-header utilities, replacing
+     the ad-hoc z-0/z-10/z-20/z-50 sprinkled per file. Tailwind v4 resolves
+     named z-* utilities against --z-index-<name>. */
+  --z-index-map: 0;
+  --z-index-chrome: 10;
+  --z-index-sheet: 20;
+  --z-index-header: 30;
 }
 
 body {
@@ -105,4 +165,57 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  text-wrap: pretty;
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Grain overlay ─────────────────────────────────────────────────────────
+   Fixed, full-viewport, pointer-events: none. Layer over photographic
+   backdrops and flat dark panels alike so nothing in the app reads as a
+   perfectly flat digital vector fill. */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-index-header);
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Skip-to-content link ─────────────────────────────────────────────────
+   Visually hidden until focused — the first tab stop on every page. */
+.skip-link {
+  position: fixed;
+  top: -100%;
+  left: 1rem;
+  z-index: 50;
+  padding: 0.75rem 1.25rem;
+  background: var(--foreground-strong);
+  color: var(--on-emphasis);
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: top 0.2s ease;
+}
+.skip-link:focus-visible {
+  top: 1rem;
 }
