@@ -4,73 +4,61 @@ import { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import LivingPhoto from "./components/LivingPhoto";
 import AgentChat from "./components/AgentChat";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Slot {
-  time_of_day: string;
-  place_name: string;
-  description: string;
-  category: string;
-  how_to_get_there: string;
-  estimated_duration: string;
-  estimated_cost: string;
-  local_tip: string;
-  coordinates: { lat: number; lng: number };
-}
-
-interface Day {
-  day_number: number;
-  day_title: string;
-  slots: Slot[];
-}
-
-interface Itinerary {
-  destination: string;
-  total_days: number;
-  summary: string;
-  days: Day[];
-}
+import type { Day, Itinerary } from "./types";
+import Button from "./components/ui/Button";
+import Chip from "./components/ui/Chip";
+import {
+  ArrowRight,
+  Minus,
+  Plus,
+  MapPin,
+  Message,
+  Rupee,
+  VIBE_ICONS,
+  TRAVEL_STYLE_ICONS,
+  PACE_ICONS,
+} from "./components/icons";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const VIBES = [
-  { label: "Street Food", icon: "🍜" },
-  { label: "History", icon: "🏛️" },
-  { label: "Nature", icon: "🌿" },
-  { label: "Local Culture", icon: "🎭" },
-  { label: "Markets", icon: "🛍️" },
-  { label: "Nightlife", icon: "🌙" },
-  { label: "Art & Music", icon: "🎨" },
-  { label: "Spiritual", icon: "🕌" },
+const VIBES: { label: string }[] = [
+  { label: "Street Food" },
+  { label: "History" },
+  { label: "Nature" },
+  { label: "Local Culture" },
+  { label: "Markets" },
+  { label: "Nightlife" },
+  { label: "Art & Music" },
+  { label: "Spiritual" },
 ];
 
-const TRAVEL_STYLES = [
-  { label: "Solo", icon: "🧍" },
-  { label: "Couple", icon: "👫" },
-  { label: "Friends", icon: "👥" },
-  { label: "Family", icon: "👨‍👩‍👧" },
+const TRAVEL_STYLES: { label: string }[] = [
+  { label: "Solo" },
+  { label: "Couple" },
+  { label: "Friends" },
+  { label: "Family" },
 ];
 
-const BUDGETS = [
-  { label: "Budget", icon: "₹", sub: "under ₹500/day" },
-  { label: "Mid-range", icon: "₹₹", sub: "₹500–2000/day" },
-  { label: "Luxury", icon: "₹₹₹", sub: "₹2000+/day" },
+const BUDGETS: { label: string; sub: string; tier: 1 | 2 | 3 }[] = [
+  { label: "Budget", sub: "under ₹500/day", tier: 1 },
+  { label: "Mid-range", sub: "₹500–2000/day", tier: 2 },
+  { label: "Luxury", sub: "₹2000+/day", tier: 3 },
 ];
 
-const PACES = [
-  { label: "Relaxed", icon: "🌊", sub: "2–3 places/day" },
-  { label: "Balanced", icon: "⚖️", sub: "3–4 places/day" },
-  { label: "Packed", icon: "⚡", sub: "max places" },
+const PACES: { label: string; sub: string }[] = [
+  { label: "Relaxed", sub: "2–3 places/day" },
+  { label: "Balanced", sub: "3–4 places/day" },
+  { label: "Packed", sub: "max places" },
 ];
 
-const POPULAR_DESTINATIONS = [
-  { name: "Goa", icon: "🌊", desc: "Beaches & culture" },
-  { name: "Jaipur", icon: "🏰", desc: "The Pink City" },
-  { name: "Manali", icon: "⛰️", desc: "Mountain escape" },
-  { name: "Varanasi", icon: "🕯️", desc: "Spiritual journey" },
-  { name: "Coorg", icon: "🌿", desc: "Coffee & mist" },
-  { name: "Udaipur", icon: "🏯", desc: "City of lakes" },
-  { name: "Rishikesh", icon: "🧘", desc: "Adventure & yoga" },
-  { name: "Hampi", icon: "🗿", desc: "Ancient ruins" },
+const POPULAR_DESTINATIONS: { name: string; desc: string }[] = [
+  { name: "Goa", desc: "Beaches & culture" },
+  { name: "Jaipur", desc: "The Pink City" },
+  { name: "Manali", desc: "Mountain escape" },
+  { name: "Varanasi", desc: "Spiritual journey" },
+  { name: "Coorg", desc: "Coffee & mist" },
+  { name: "Udaipur", desc: "City of lakes" },
+  { name: "Rishikesh", desc: "Adventure & yoga" },
+  { name: "Hampi", desc: "Ancient ruins" },
 ];
 
 const PLACEHOLDERS = [
@@ -95,8 +83,8 @@ const PROGRESS_MESSAGES = [
 const TravelMap = dynamic(() => import("./components/TravelMap"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
-      <div className="text-sm animate-pulse" style={{ color: "var(--muted-2)" }}>Loading map…</div>
+    <div className="w-full min-h-dvh flex items-center justify-center bg-background">
+      <div className="text-small text-muted-soft animate-pulse">Loading map…</div>
     </div>
   ),
 });
@@ -286,6 +274,7 @@ export default function Home() {
         onRefine={callAPI}
         onDaysUpdate={setLiveDays}
         loading={loading}
+        onExit={() => setItinerary(null)}
       />
     );
   }
@@ -353,7 +342,7 @@ function PlanTripView({
   }, [city]);
 
   return (
-    <div className="relative min-h-screen overflow-y-auto" style={{ background: "var(--background)" }}>
+    <div className="relative min-h-dvh bg-background">
       <style>{`
         @keyframes fadeUp {
           from { opacity: 0; transform: translateY(12px); }
@@ -362,228 +351,201 @@ function PlanTripView({
         .fade-section { animation: fadeUp 0.5s ease-out both; }
       `}</style>
 
-      {/* Living backdrop — morphs into the chosen place */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <LivingPhoto query={bgQuery} intensity={0.45} scrim={0.82} showCredit={false} />
+      {/* Living backdrop — reads as atmosphere, not the loudest element */}
+      <div className="fixed inset-0 z-map pointer-events-none">
+        <LivingPhoto query={bgQuery} intensity={0.3} scrim={0.82} showCredit={false} />
       </div>
 
       {/* Foreground content sits above the backdrop */}
-      <div className="relative z-10">
+      <div className="relative z-chrome flex flex-col min-h-dvh">
+        <header className="sticky top-0 z-header relative flex items-center justify-center h-14 px-4 sm:px-6 backdrop-blur-xl bg-background/90 border-b border-border-subtle">
+          <span className="font-mono text-caption tracking-[3px] uppercase text-muted-soft">
+            naviro
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Message}
+            onClick={onOpenChat}
+            className="absolute right-3 sm:right-6"
+          >
+            Chat instead
+          </Button>
+        </header>
 
-      {/* Top bar */}
-      <div className="sticky top-0 z-50 flex items-center justify-center h-14 px-6"
-        style={{ background: "rgba(10,10,10,0.9)", backdropFilter: "blur(20px)", borderBottom: "1px solid var(--overlay-subtle)" }}>
-        <span className="text-xs tracking-[3px] uppercase" style={{ color: "var(--muted-3)" }}>
-          naviro
-        </span>
-        <button
-          onClick={onOpenChat}
-          className="absolute right-6 text-xs transition-colors duration-200"
-          style={{ color: "var(--muted-2)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--foreground-strong)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--muted-2)"; }}>
-          💬 Chat instead
-        </button>
-      </div>
+        <main id="main-content" className="flex-1">
+          <div className="max-w-[1200px] mx-auto px-6 pt-10 pb-12 lg:pt-16 lg:pb-20 lg:grid lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:items-start">
 
-      <div className="max-w-md mx-auto px-6 pt-8 pb-12">
-        {/* Where to */}
-        <div className="text-center space-y-5 mb-14 fade-section" style={{ animationDelay: "0.05s" }}>
-          <h2 className="text-3xl font-semibold" style={{ color: "var(--foreground-strong)", letterSpacing: "-0.5px" }}>
-            Where to?
-          </h2>
-          <input
-            ref={inputRef}
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder={PLACEHOLDERS[placeholderIdx]}
-            className="w-full bg-transparent text-center text-xl font-medium outline-none pb-3 transition-colors duration-200"
-            style={{ color: "var(--foreground-strong)", borderBottom: "1px solid var(--border-subtle)", caretColor: "var(--foreground-strong)" }}
-            onFocus={(e) => { e.currentTarget.style.borderBottomColor = "var(--border-focus)"; }}
-            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "var(--border-subtle)"; }}
-          />
-          <div className="grid grid-cols-2 gap-2 pt-2">
-            {POPULAR_DESTINATIONS.map((d) => (
-              <button key={d.name}
-                onClick={() => setCity(d.name)}
-                className="flex items-center gap-3 p-3 rounded-2xl text-left transition-all duration-200"
-                style={{
-                  background: city === d.name ? "var(--overlay)" : "var(--surface)",
-                  border: city === d.name ? "1px solid var(--overlay-strong)" : "1px solid var(--border-subtle)",
-                }}
-                onMouseEnter={(e) => {
-                  if (city !== d.name) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (city !== d.name) e.currentTarget.style.borderColor = "var(--border-subtle)";
-                }}>
-                <span className="text-lg">{d.icon}</span>
-                <div>
-                  <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>{d.name}</p>
-                  <p className="text-xs" style={{ color: "var(--muted-3)" }}>{d.desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+            {/* Beat 1 — hero: headline, city input, destination rail */}
+            <div className="fade-section lg:sticky lg:top-24" style={{ animationDelay: "0.05s" }}>
+              <h2 className="text-h1 lg:text-display font-semibold text-foreground-strong text-center lg:text-left">
+                Where to?
+              </h2>
+              <input
+                ref={inputRef}
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder={PLACEHOLDERS[placeholderIdx]}
+                aria-label="Destination city"
+                className="w-full bg-transparent text-h2 font-medium outline-none pb-3 mt-6 text-center lg:text-left border-b border-border-subtle focus:border-accent transition-colors duration-200 text-foreground-strong placeholder:text-muted-soft"
+              />
 
-        {/* Duration */}
-        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.1s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>How many days?</h3>
-          <div className="flex items-center justify-center gap-6">
-            <button onClick={() => setDays(String(Math.max(1, Number(days) - 1)))}
-              className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
-              style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", color: "var(--muted-2)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle-hover)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}>
-              −
-            </button>
-            <div className="min-w-[80px]">
-              <span className="text-4xl font-semibold tabular-nums" style={{ color: "var(--foreground-strong)" }}>{days}</span>
-              <span className="text-sm ml-1.5" style={{ color: "var(--muted-3)" }}>{Number(days) === 1 ? "day" : "days"}</span>
+              <div
+                className="flex gap-2 overflow-x-auto pb-1 mt-6 -mx-6 px-6 lg:mx-0 lg:px-0 snap-x snap-proximity"
+                style={{ scrollbarWidth: "none" }}
+              >
+                {POPULAR_DESTINATIONS.map((d) => (
+                  <Chip
+                    key={d.name}
+                    layout="row"
+                    icon={MapPin}
+                    subtitle={d.desc}
+                    selected={city === d.name}
+                    onClick={() => setCity(d.name)}
+                    className="flex-shrink-0 whitespace-nowrap snap-start"
+                  >
+                    {d.name}
+                  </Chip>
+                ))}
+              </div>
             </div>
-            <button onClick={() => setDays(String(Math.min(7, Number(days) + 1)))}
-              className="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200"
-              style={{ background: "var(--surface)", border: "1px solid var(--border-subtle)", color: "var(--muted-2)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle-hover)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-subtle)"; }}>
-              +
-            </button>
-          </div>
-        </div>
 
-        {/* Vibes */}
-        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.15s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>What&apos;s your vibe?</h3>
-          <div className="flex flex-wrap justify-center gap-2">
-            {VIBES.map((v) => (
-              <button key={v.label} onClick={() => toggleVibe(v.label)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
-                style={selectedVibes.includes(v.label)
-                  ? { background: "var(--foreground-strong)", color: "var(--on-emphasis)", border: "1px solid var(--foreground-strong)", fontWeight: 500 }
-                  : { background: "transparent", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
-                }
-                onMouseEnter={(e) => {
-                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!selectedVibes.includes(v.label)) e.currentTarget.style.borderColor = "var(--border-subtle)";
-                }}>
-                <span>{v.icon}</span><span>{v.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+            {/* Beat 2 — trip brief panel */}
+            <div
+              className="fade-section mt-10 lg:mt-0 rounded-3xl border border-border-subtle bg-surface/80 backdrop-blur-sm p-5 sm:p-6 lg:p-8 space-y-8"
+              style={{ animationDelay: "0.15s" }}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-small font-semibold text-muted-soft mb-3">How many days</h3>
+                  <div className="flex items-center gap-4">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      pill
+                      iconOnly
+                      icon={Minus}
+                      aria-label="One fewer day"
+                      onClick={() => setDays(String(Math.max(1, Number(days) - 1)))}
+                    />
+                    <span className="font-mono tabular-nums text-h1 text-foreground-strong min-w-[2.5ch] text-center">
+                      {days}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      pill
+                      iconOnly
+                      icon={Plus}
+                      aria-label="One more day"
+                      onClick={() => setDays(String(Math.min(7, Number(days) + 1)))}
+                    />
+                  </div>
+                </div>
 
-        {/* Travel style */}
-        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.2s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Travelling as</h3>
-          <div className="flex flex-wrap justify-center gap-2">
-            {TRAVEL_STYLES.map((s) => (
-              <button key={s.label}
-                onClick={() => setTravelStyle(travelStyle === s.label ? "" : s.label)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm transition-all duration-200"
-                style={travelStyle === s.label
-                  ? { background: "var(--foreground-strong)", color: "var(--on-emphasis)", border: "1px solid var(--foreground-strong)", fontWeight: 500 }
-                  : { background: "transparent", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
-                }
-                onMouseEnter={(e) => {
-                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (travelStyle !== s.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
-                }}>
-                <span>{s.icon}</span><span>{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+                <div>
+                  <h3 className="text-small font-semibold text-muted-soft mb-3">Travelling as</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {TRAVEL_STYLES.map((s) => (
+                      <Chip
+                        key={s.label}
+                        layout="row"
+                        icon={TRAVEL_STYLE_ICONS[s.label]}
+                        selected={travelStyle === s.label}
+                        onClick={() => setTravelStyle(travelStyle === s.label ? "" : s.label)}
+                      >
+                        {s.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-        {/* Budget */}
-        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.25s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Budget</h3>
-          <div className="flex justify-center gap-3">
-            {BUDGETS.map((b) => (
-              <button key={b.label}
-                onClick={() => setBudget(budget === b.label ? "" : b.label)}
-                className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
-                style={budget === b.label
-                  ? { background: "var(--overlay)", color: "var(--foreground-strong)", border: "1px solid var(--overlay-strong)", fontWeight: 500 }
-                  : { background: "var(--surface)", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
-                }
-                onMouseEnter={(e) => {
-                  if (budget !== b.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (budget !== b.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
-                }}>
-                <span className="text-lg">{b.icon}</span>
-                <span>{b.label}</span>
-                <span className="text-xs" style={{ color: budget === b.label ? "var(--muted)" : "var(--muted-3)" }}>{b.sub}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+              <div>
+                <h3 className="text-small font-semibold text-muted-soft mb-3">What&apos;s your vibe?</h3>
+                <div className="flex flex-wrap gap-2">
+                  {VIBES.map((v) => (
+                    <Chip
+                      key={v.label}
+                      layout="row"
+                      icon={VIBE_ICONS[v.label]}
+                      selected={selectedVibes.includes(v.label)}
+                      onClick={() => toggleVibe(v.label)}
+                    >
+                      {v.label}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
 
-        {/* Pace */}
-        <div className="text-center space-y-4 mb-14 fade-section" style={{ animationDelay: "0.3s" }}>
-          <h3 className="text-lg font-medium" style={{ color: "var(--muted)" }}>Pace</h3>
-          <div className="flex justify-center gap-3">
-            {PACES.map((p) => (
-              <button key={p.label}
-                onClick={() => setPace(pace === p.label ? "" : p.label)}
-                className="flex flex-col items-center gap-1.5 px-5 py-4 rounded-2xl text-sm transition-all duration-200"
-                style={pace === p.label
-                  ? { background: "var(--overlay)", color: "var(--foreground-strong)", border: "1px solid var(--overlay-strong)", fontWeight: 500 }
-                  : { background: "var(--surface)", color: "var(--muted-2)", border: "1px solid var(--border-subtle)" }
-                }
-                onMouseEnter={(e) => {
-                  if (pace !== p.label) e.currentTarget.style.borderColor = "var(--border-subtle-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (pace !== p.label) e.currentTarget.style.borderColor = "var(--border-subtle)";
-                }}>
-                <span className="text-lg">{p.icon}</span>
-                <span>{p.label}</span>
-                <span className="text-xs" style={{ color: pace === p.label ? "var(--muted)" : "var(--muted-3)" }}>{p.sub}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+              <div>
+                <h3 className="text-small font-semibold text-muted-soft mb-3">Budget</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {BUDGETS.map((b) => (
+                    <Chip
+                      key={b.label}
+                      layout="column"
+                      subtitle={b.sub}
+                      selected={budget === b.label}
+                      onClick={() => setBudget(budget === b.label ? "" : b.label)}
+                    >
+                      <span className="flex justify-center gap-0.5 mb-1">
+                        {Array.from({ length: b.tier }).map((_, i) => (
+                          <Rupee key={i} size={14} aria-hidden="true" />
+                        ))}
+                      </span>
+                      {b.label}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
 
-        {/* Error & Submit */}
-        {error && (
-          <div className="text-center mb-4 space-y-2 fade-section">
-            <p className="text-sm" style={{ color: "var(--danger)" }}>{error}</p>
-            <button
-              onClick={onRetry}
-              className="text-sm underline underline-offset-2 transition-colors duration-200"
-              style={{ color: "var(--muted)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--foreground-strong)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--muted)"; }}>
-              Try again
-            </button>
-          </div>
-        )}
+              <div>
+                <h3 className="text-small font-semibold text-muted-soft mb-3">Pace</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {PACES.map((p) => (
+                    <Chip
+                      key={p.label}
+                      layout="column"
+                      icon={PACE_ICONS[p.label]}
+                      subtitle={p.sub}
+                      selected={pace === p.label}
+                      onClick={() => setPace(pace === p.label ? "" : p.label)}
+                    >
+                      {p.label}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
 
-        <div className="pb-10 fade-section" style={{ animationDelay: "0.35s" }}>
-          <button onClick={onSubmit} disabled={!city.trim() || loading}
-            className="w-full py-4 rounded-full text-sm font-medium transition-all duration-200 disabled:opacity-20"
-            style={{ background: "var(--foreground-strong)", color: "var(--on-emphasis)" }}
-            onMouseEnter={(e) => {
-              if (!e.currentTarget.disabled) {
-                e.currentTarget.style.transform = "scale(1.01)";
-                e.currentTarget.style.boxShadow = "0 0 24px var(--overlay)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-              e.currentTarget.style.boxShadow = "none";
-            }}>
-            {loading ? PROGRESS_MESSAGES[progressIdx] : "Plan my trip →"}
-          </button>
-        </div>
-      </div>
+              {error && (
+                <div className="text-center space-y-2">
+                  <p className="text-small text-danger">{error}</p>
+                  <Button variant="ghost" size="sm" onClick={onRetry}>
+                    Try again
+                  </Button>
+                </div>
+              )}
+
+              <Button
+                variant="primary"
+                pill
+                size="lg"
+                fullWidth
+                disabled={!city.trim() || loading}
+                onClick={onSubmit}
+              >
+                {loading ? (
+                  PROGRESS_MESSAGES[progressIdx]
+                ) : (
+                  <>
+                    Plan my trip <ArrowRight size={16} aria-hidden="true" />
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
